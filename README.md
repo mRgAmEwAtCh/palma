@@ -9,6 +9,12 @@
   <i>Your homelab, maintained from the palm of your hand.</i>
 </p>
 
+<p align="center">
+  <a href="https://github.com/mRgAmEwAtCh/palma/actions/workflows/docker.yml"><img src="https://github.com/mRgAmEwAtCh/palma/actions/workflows/docker.yml/badge.svg" alt="CI &amp; Docker"></a>
+  <a href="https://github.com/mRgAmEwAtCh/palma/pkgs/container/palma"><img src="https://img.shields.io/badge/ghcr.io-mrgamewatch%2Fpalma-f4a63c?logo=docker&amp;logoColor=white" alt="Container image"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3fb950" alt="MIT license"></a>
+</p>
+
 Palma is a small, mobile-first web app on top of Ansible for maintaining homelab hosts: Proxmox LXC containers and VMs,
 and bare-metal boxes like OpenMediaVault or a Raspberry Pi with Armbian. Supports Debian, Ubuntu, Armbian, OMV and
 Alpine targets.
@@ -28,8 +34,8 @@ Alpine targets.
 - Installable on Android (Chrome → *Add to home screen*).
 - **Tool maintenance check** (Settings tab): compares the installed `ansible-core`, `ansible-runner` and the
   `community.general` collection against the latest releases on PyPI / Ansible Galaxy (cached for 6 h). A dot on the
-  Settings tab signals available updates. Update by rebuilding the image:
-  `docker compose build --pull --no-cache && docker compose up -d`.
+  Settings tab signals available updates. Update by pulling a newer image (`docker compose pull && docker compose up -d`)
+  or, when building locally, `docker compose build --pull --no-cache && docker compose up -d`.
 
 ## Architecture
 
@@ -81,6 +87,34 @@ docker compose up -d --build
 
 The app listens on `PORT` (default 8080). The controller's public key is shown under **Settings**. Add it to
 `~/.ssh/authorized_keys` of the SSH user on every managed host.
+
+### Prebuilt image
+
+Multi-arch images (`linux/amd64`, `linux/arm64`) are published to the GitHub Container Registry by
+[GitHub Actions](.github/workflows/docker.yml):
+
+| Tag | Built from |
+|-----|------------|
+| `latest`, `1.2.3`, `1.2`, `1` | release tags `v1.2.3` |
+| `edge` | every push to `main` |
+| `sha-<commit>` | every push |
+
+To use it instead of building locally, replace `build: .` and `image: palma:latest` in `docker-compose.yml` with:
+
+```yaml
+    image: ghcr.io/mrgamewatch/palma:latest
+```
+
+and run `docker compose pull && docker compose up -d`. The repository checkout is still needed for `playbooks/`, which
+is mounted into the container.
+
+### Releasing
+
+Tag a commit to publish a versioned image (the tests must pass first):
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
 
 ### Authentication
 

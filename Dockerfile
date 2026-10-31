@@ -1,5 +1,6 @@
 # ── Frontend build ────────────────────────────────────────────────────────────
-FROM node:24-alpine AS web
+# Static output is platform-independent, so build it natively even for multi-arch images.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -8,6 +9,10 @@ RUN npm run build
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM python:3.13-slim
+
+LABEL org.opencontainers.image.title="Palma" \
+      org.opencontainers.image.description="Proxmox And Linux Maintenance via Ansible: a mobile-first web UI for your homelab" \
+      org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
