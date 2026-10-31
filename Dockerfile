@@ -1,6 +1,6 @@
 # ── Frontend build ────────────────────────────────────────────────────────────
 # Static output is platform-independent, so build it natively even for multi-arch images.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS web
+FROM --platform=$BUILDPLATFORM node:25-alpine AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
