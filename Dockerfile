@@ -8,7 +8,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="Palma" \
       org.opencontainers.image.description="Proxmox And Linux Maintenance via Ansible: a mobile-first web UI for your homelab" \
