@@ -1,0 +1,137 @@
+---
+# Read-only health check: Docker containers, disk space, pending updates, reboot flag, failed systemd units.
+# Updates the status labels of each host in the app (fact "palma_status"). Suitable for scheduled runs.
+# Docker: critical if a container is unhealthy, restarting, out of memory or crashed although it has a restart
+#   policy; warning if a "restart: always" container is stopped. Containers stopped on purpose are ignored.
+# Extra vars: disk_warn_percent / disk_crit_percent (85 / 95), docker_ignore_containers (list of names),
+#   refresh_package_index (true), fail_on_warning (false)
+
+- name: Health check
+  hosts: all
+  gather_facts: true
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    disk_warn_percent: 85
+    disk_crit_percent: 95
+    docker_ignore_containers: []
+    refresh_package_index: true
+    fail_on_warning: false
+    ignored_fstypes: [tmpfs, devtmpfs, squashfs, overlay, proc, sysfs, fuse.lxcfs, nsfs, autofs]
+
+  tasks:
+    - name: Count pending updates (apt)
+      ansible.builtin.shell: |
+        {% if refresh_package_index | bool %}apt-get update -qq >/dev/null 2>&1 || true{% endif %}
+
+        apt-get -s -o Debug::NoLocking=1 upgrade | grep -c '^Inst' || true
+      register: apt_pending
+      changed_when: false
+      check_mode: false
+      when: ansible_pkg_mgr == 'apt'
+
+    - name: Count pending updates (apk)
+      ansible.builtin.shell: |
+        {% if refresh_package_index | bool %}apk update -q >/dev/null 2>&1 || true{% endif %}
+
+        apk version -l '<' 2>/dev/null | tail -n +2 | wc -l
+      register: apk_pending
+      changed_when: false
+      check_mode: false
+      when: ansible_pkg_mgr == 'apk'
+
+    - name: Failed systemd units
+      ansible.builtin.command: systemctl list-units --state=failed --no-legend --plain
+      register: failed_units
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: ansible_service_mgr == 'systemd'
+
+    - name: Check reboot-required flag
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Inspect Docker containers
+      ansible.builtin.shell: |
+        command -v docker >/dev/null 2>&1 || { echo "__NODOCKER__"; exit 0; }
+        ids=$(docker ps -aq)
+        [ -n "$ids" ] || exit 0
+        docker inspect --format '{% raw %}{{.Name}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.HostConfig.RestartPolicy.Name}}|{{.State.OOMKilled}}{% endraw %}' $ids
+      register: docker_ps
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Compute status
+      ansible.builtin.set_fact:
+        palma_status: |
+          {% set rank = {'ok': 0, 'warning': 1, 'critical': 2} %}
+          {% set checks = {} %}
+          {# ── disk ── #}
+          {% set ds = namespace(details=[], max=0.0, mount='') %}
+          {% for m in ansible_mounts | default([]) if m.fstype not in ignored_fstypes and (m.size_total | default(0) | int) > 0 %}
+          {%   set pct = ((1 - (m.size_available | float) / (m.size_total | float)) * 100) | round(1) %}
+          {%   set ds.details = ds.details + [m.mount ~ ': ' ~ pct ~ '% of ' ~ (m.size_total | human_readable)] %}
+          {%   if pct > ds.max %}{% set ds.max = pct %}{% set ds.mount = m.mount %}{% endif %}
+          {% endfor %}
+          {% if ds.details %}
+          {%   set lvl = 'critical' if ds.max >= disk_crit_percent | float else 'warning' if ds.max >= disk_warn_percent | float else 'ok' %}
+          {%   set _ = checks.update({'disk': {'level': lvl, 'summary': (ds.max | round | int) ~ '%', 'details': ds.details}}) %}
+          {% endif %}
+          {# ── updates ── #}
+          {% set pending = (apt_pending.stdout | default('') | trim) or (apk_pending.stdout | default('') | trim) %}
+          {% if pending | length > 0 %}
+          {%   set count = pending | int %}
+          {%   set details = (['reboot required'] if reboot_flag.stat.exists else []) %}
+          {%   set lvl = 'warning' if count > 0 or reboot_flag.stat.exists else 'ok' %}
+          {%   set _ = checks.update({'updates': {'level': lvl, 'summary': (count ~ (' + reboot' if reboot_flag.stat.exists else '')), 'count': count, 'reboot_required': reboot_flag.stat.exists, 'details': details}}) %}
+          {% endif %}
+          {# ── docker ── #}
+          {% set dk = namespace(total=0, running=0, critical=[], warning=[]) %}
+          {% set docker_lines = docker_ps.stdout_lines | default([]) %}
+          {% if '__NODOCKER__' not in docker_lines %}
+          {%   for line in docker_lines if line.count('|') == 5 %}
+          {%     set f = line.split('|') %}
+          {%     set cname = f[0] | regex_replace('^/', '') %}
+          {%     set state, code, health, policy, oom = f[1], f[2] | int, f[3], f[4], f[5] == 'true' %}
+          {#     0 = clean exit, 130/137/143 = stopped by signal (docker stop / compose stop) #}
+          {%     set crashed = state == 'dead' or oom or code not in [0, 130, 137, 143] %}
+          {%     if cname not in docker_ignore_containers %}
+          {%       set dk.total = dk.total + 1 %}
+          {%       if state == 'running' %}
+          {%         set dk.running = dk.running + 1 %}
+          {%         if health == 'unhealthy' %}{% set dk.critical = dk.critical + [cname ~ ': unhealthy'] %}{% endif %}
+          {%       elif state == 'restarting' %}
+          {%         set dk.critical = dk.critical + [cname ~ ': restarting (exit ' ~ code ~ ')'] %}
+          {%       elif state == 'paused' %}
+          {%         set dk.warning = dk.warning + [cname ~ ': paused'] %}
+          {%       elif policy in ['always', 'unless-stopped', 'on-failure'] and crashed %}
+          {%         set dk.critical = dk.critical + [cname ~ ': ' ~ ('out of memory' if oom else state ~ ' (exit ' ~ code ~ ')')] %}
+          {%       elif policy == 'always' %}
+          {%         set dk.warning = dk.warning + [cname ~ ': stopped'] %}
+          {%       endif %}
+          {%     endif %}
+          {%   endfor %}
+          {%   set lvl = 'critical' if dk.critical else 'warning' if dk.warning else 'ok' %}
+          {%   set _ = checks.update({'docker': {'level': lvl, 'summary': dk.running ~ '/' ~ dk.total, 'details': dk.critical + dk.warning}}) %}
+          {% endif %}
+          {# ── systemd ── #}
+          {% set failed = failed_units.stdout_lines | default([]) | map('split') | map('first') | list %}
+          {% if failed %}
+          {%   set _ = checks.update({'units': {'level': 'warning', 'summary': failed | length ~ ' failed', 'details': failed}}) %}
+          {% endif %}
+          {% set ov = namespace(level='ok') %}
+          {% for c in checks.values() if rank[c.level] > rank[ov.level] %}{% set ov.level = c.level %}{% endfor %}
+          {{ {'level': ov.level, 'checks': checks,
+              'os': ansible_distribution ~ ' ' ~ ansible_distribution_version,
+              'uptime_days': ((ansible_uptime_seconds | default(0) | int) / 86400) | round(1)} }}
+
+    - name: Report
+      ansible.builtin.debug:
+        var: palma_status
+
+    - name: Fail on warnings
+      ansible.builtin.fail:
+        msg: "Status {{ palma_status.level }}: {{ palma_status.checks | dict2items | rejectattr('value.level', 'eq', 'ok') | map(attribute='key') | join(', ') }}"
+      when: fail_on_warning | bool and palma_status.level != 'ok'

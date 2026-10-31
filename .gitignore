@@ -1,0 +1,29 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+ssh/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+vault_password*
+
+# Runtime data (database, run logs, backups)
+data/
+*.db
+*.db-*
+*.sqlite*
+*.bak*
+
+# Real variable files (only *.example is published)
+playbooks/vars/*.yml
+!playbooks/vars/*.example
+
+# Build and tooling
+backend/.venv/
+__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+.DS_Store

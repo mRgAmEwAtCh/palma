@@ -1,0 +1,58 @@
+---
+# Updates all packages. apt (Debian/Ubuntu/Armbian), apk (Alpine) and omv-upgrade (OpenMediaVault).
+# Does NOT reboot; it only reports whether a reboot is required. Use "Reboot if required" afterwards.
+# Extra vars: apt_upgrade_mode (dist|full|safe|yes, default safe), autoremove (default true)
+
+- name: System update
+  hosts: all
+  gather_facts: true
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    apt_upgrade_mode: dist
+    autoremove: true
+
+  tasks:
+    - name: Detect OpenMediaVault
+      ansible.builtin.stat:
+        path: /usr/sbin/omv-upgrade
+      register: omv
+
+    # ── apt ──────────────────────────────────────────────────────────────────
+    - name: Upgrade packages (apt)
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: "{{ apt_upgrade_mode }}"
+        autoremove: "{{ autoremove | bool }}"
+        autoclean: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: apt_result
+      when: ansible_pkg_mgr == 'apt' and not omv.stat.exists
+
+    - name: Upgrade OpenMediaVault (omv-upgrade)
+      ansible.builtin.command: omv-upgrade
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: omv_result
+      changed_when: "'0 upgraded' not in omv_result.stdout"
+      when: omv.stat.exists and not ansible_check_mode
+
+    # ── apk ──────────────────────────────────────────────────────────────────
+    - name: Upgrade packages (apk)
+      community.general.apk:
+        update_cache: true
+        upgrade: true
+      register: apk_result
+      when: ansible_pkg_mgr == 'apk'
+
+    # ── report ───────────────────────────────────────────────────────────────
+    - name: Check reboot-required flag (Debian family)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Packages changed: {{ (apt_result is changed) or (omv_result is changed) or (apk_result is changed) }}"
+          - "Reboot required: {{ reboot_flag.stat.exists }}"

@@ -1,0 +1,57 @@
+[sssd]
+config_file_version = 2
+services = nss, pam, sudo
+domains = {{ sssd_domain }}
+
+[nss]
+homedir_substring = /home
+
+[pam]
+offline_credentials_expiration = 7
+
+[sudo]
+
+[domain/{{ sssd_domain }}]
+id_provider = ldap
+auth_provider = ldap
+chpass_provider = ldap
+
+# Authentik stores group members as full DNs (rfc2307bis)
+ldap_schema = rfc2307bis
+
+ldap_uri = {{ ldap_uri }}
+ldap_search_base = {{ ldap_base_dn }}
+ldap_user_search_base = {{ ldap_users_base }}
+ldap_group_search_base = {{ ldap_groups_base }}
+
+ldap_default_bind_dn = {{ ldap_bind_dn }}
+ldap_default_authtok_type = password
+ldap_default_authtok = {{ ldap_bind_password }}
+
+# Disable STARTTLS for plain ldap:// connections
+ldap_id_use_start_tls = false
+ldap_tls_reqcert = never
+# Allow password auth over plain ldap:// (no TLS available)
+ldap_auth_disable_tls_never_use_in_production = true
+
+# Authentik LDAP schema
+ldap_user_object_class = inetOrgPerson
+ldap_user_name = cn
+ldap_user_uid_number = uidNumber
+ldap_user_gid_number = gidNumber
+ldap_user_home_directory = homeDirectory
+ldap_user_shell = loginShell
+ldap_user_gecos = displayName
+
+ldap_group_object_class = group
+ldap_group_name = cn
+ldap_group_member = member
+
+# Use the memberOf attribute on user objects for efficient group resolution
+ldap_user_member_of = memberOf
+
+enumerate = false
+cache_credentials = true
+use_fully_qualified_names = false
+fallback_homedir = /home/%u
+default_shell = /bin/bash

@@ -1,0 +1,146 @@
+---
+# Installs SSSD and configures Authentik LDAP as the default login method (Debian/Ubuntu only).
+# Requires vars/sssd_vars.yml (copy from vars/sssd_vars.yml.example) and a reachable Authentik LDAP outpost.
+
+- name: Configure SSSD with Authentik LDAP as default login
+  hosts: all
+  become: "{{ ansible_user != 'root' }}"
+  vars_files:
+    - vars/sssd_vars.yml
+
+  handlers:
+    - name: Restart SSSD
+      service:
+        name: sssd
+        state: restarted
+
+    - name: Reload sudo
+      command: systemctl restart sudo
+      ignore_errors: true
+
+  tasks:
+    - name: Only Debian-family hosts are supported
+      ansible.builtin.assert:
+        that: ansible_os_family == 'Debian'
+        fail_msg: "sssd_ldap supports Debian/Ubuntu only (this is {{ ansible_distribution }})"
+
+    # ── 1. Packages ────────────────────────────────────────────────────────────
+    - name: Install SSSD, PAM, NSS and sudo packages
+      apt:
+        name:
+          - sssd
+          - sssd-ldap
+          - sssd-tools
+          - libpam-sss
+          - libnss-sss
+          - libsss-sudo
+          - libpam-mkhomedir
+          - sudo
+          - ldap-utils
+        state: present
+        update_cache: true
+
+    # ── 2. SSSD configuration ──────────────────────────────────────────────────
+    - name: Ensure /etc/sssd directory exists with correct permissions
+      file:
+        path: /etc/sssd
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy sssd.conf from template
+      template:
+        src: templates/sssd.conf.j2
+        dest: /etc/sssd/sssd.conf
+        owner: root
+        group: root
+        mode: '0600'
+      notify: Restart SSSD
+
+    # ── 3. NSS – tell the system to look up users/groups via SSSD ─────────────
+    - name: Enable SSSD in nsswitch.conf for passwd
+      lineinfile:
+        path: /etc/nsswitch.conf
+        regexp: '^passwd:'
+        line: 'passwd:         files sss'
+        backup: yes
+
+    - name: Enable SSSD in nsswitch.conf for group
+      lineinfile:
+        path: /etc/nsswitch.conf
+        regexp: '^group:'
+        line: 'group:          files sss'
+
+    - name: Enable SSSD in nsswitch.conf for shadow
+      lineinfile:
+        path: /etc/nsswitch.conf
+        regexp: '^shadow:'
+        line: 'shadow:         files sss'
+
+    - name: Enable SSSD in nsswitch.conf for sudo (sudoers via SSSD)
+      lineinfile:
+        path: /etc/nsswitch.conf
+        regexp: '^sudoers:'
+        line: 'sudoers:        files sss'
+        insertafter: '^shadow:'
+
+    # ── 4. PAM – enable SSSD and automatic home-directory creation ─────────────
+    - name: Wait for debconf lock to be released
+      shell: |
+        while fuser /var/cache/debconf/config.dat >/dev/null 2>&1; do
+          sleep 2
+        done
+      changed_when: false
+
+    - name: Enable SSSD and mkhomedir in PAM via pam-auth-update
+      command: pam-auth-update --enable sss mkhomedir --force
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: pam_auth_update
+      retries: 5
+      delay: 5
+      until: pam_auth_update.rc == 0
+
+    # ── 5. Sudoers – grant sudo to the LDAP group ──────────────────────────────
+    - name: Create sudoers rule for LDAP group {{ sudo_ldap_group }}
+      copy:
+        dest: "/etc/sudoers.d/{{ sudo_ldap_group }}"
+        content: |
+          # Members of the LDAP group '{{ sudo_ldap_group }}' get full sudo access
+          %{{ sudo_ldap_group }} ALL=(ALL:ALL) ALL
+        owner: root
+        group: root
+        mode: '0440'
+
+    - name: Validate sudoers file syntax
+      command: "visudo -cf /etc/sudoers.d/{{ sudo_ldap_group }}"
+      changed_when: false
+
+    # ── 6. Enable and start SSSD ───────────────────────────────────────────────
+    - name: Enable and start SSSD service
+      service:
+        name: sssd
+        enabled: true
+        state: started
+
+    # ── 7. Smoke test – verify LDAP user lookup works ─────────────────────────
+    - name: Wait for SSSD to be ready
+      wait_for:
+        timeout: 5
+
+    - name: Verify SSSD can query LDAP users
+      command: getent passwd -s sss
+      register: sssd_lookup
+      changed_when: false
+      failed_when: sssd_lookup.rc != 0
+      ignore_errors: true
+
+    - name: Show LDAP user lookup result
+      debug:
+        msg: >-
+          {% if sssd_lookup.rc == 0 %}
+          SSSD LDAP lookup successful. Found {{ sssd_lookup.stdout_lines | length }} user(s).
+          {% else %}
+          SSSD lookup returned no results — verify bind credentials and LDAP connectivity.
+          {% endif %}

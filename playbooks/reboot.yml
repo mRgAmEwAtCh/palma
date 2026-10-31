@@ -1,0 +1,29 @@
+---
+# Reboots hosts that need it (/var/run/reboot-required on Debian family) and waits until they are back.
+# Extra vars: force_reboot (default false) reboots regardless, reboot_serial (default 1) = hosts rebooted at a time.
+# Careful: do not select the host running this web app, or the run will be interrupted.
+
+- name: Reboot if required
+  hosts: all
+  gather_facts: false
+  serial: "{{ reboot_serial }}"
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    force_reboot: false
+    reboot_serial: 1
+
+  tasks:
+    - name: Check reboot-required flag
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Reboot triggered by Palma"
+      when: (force_reboot | bool) or reboot_flag.stat.exists
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ 'rebooted' if ((force_reboot | bool) or reboot_flag.stat.exists) else 'no reboot needed' }}"

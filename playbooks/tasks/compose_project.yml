@@ -1,0 +1,43 @@
+---
+# Included by docker_compose_update.yml once per stack (loop_var: project).
+- name: "{{ project.name }} | update"
+  block:
+    - name: "{{ project.name }} | check compose file"
+      ansible.builtin.stat:
+        path: "{{ project.files[0] }}"
+      register: compose_file
+
+    - name: "{{ project.name }} | compose file missing"
+      ansible.builtin.fail:
+        msg: "{{ project.files[0] }} not found"
+      when: not compose_file.stat.exists
+
+    - name: "{{ project.name }} | pull"
+      ansible.builtin.shell: >-
+        {{ compose_cmd }} -p {{ project.name | quote }}
+        {% for f in project.files %}-f {{ f | quote }} {% endfor %}
+        pull {{ compose_pull_args }}
+      args:
+        chdir: "{{ project.dir }}"
+      changed_when: false
+
+    - name: "{{ project.name }} | up -d"
+      ansible.builtin.shell: >-
+        {{ compose_cmd }} -p {{ project.name | quote }}
+        {% for f in project.files %}-f {{ f | quote }} {% endfor %}
+        up -d {{ '--remove-orphans' if compose_remove_orphans | bool else '' }}
+      args:
+        chdir: "{{ project.dir }}"
+      register: compose_up
+      changed_when: (compose_up.stdout ~ compose_up.stderr) is search('Recreat|Creat|Start')
+
+    - name: "{{ project.name }} | record result"
+      ansible.builtin.set_fact:
+        compose_results: "{{ compose_results + [[project.name, 'updated' if compose_up is changed else 'unchanged']] }}"
+
+  rescue:
+    - name: "{{ project.name }} | record failure"
+      ansible.builtin.set_fact:
+        compose_results: >-
+          {{ compose_results + [[project.name, 'failed - ' ~ ((ansible_failed_result.stderr | default('') | trim)
+             or ansible_failed_result.msg | default('error')) | truncate(300)]] }}

@@ -1,0 +1,40 @@
+---
+# Removes unused Docker images, stopped containers, unused networks and build cache.
+# Hosts without Docker are skipped. Extra vars: prune_volumes (default false) also removes unused volumes!
+
+- name: Docker cleanup
+  hosts: all
+  gather_facts: false
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    prune_volumes: false
+
+  tasks:
+    - name: Check for docker
+      ansible.builtin.command: sh -c 'command -v docker'
+      register: docker_bin
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Skip hosts without docker
+      ansible.builtin.meta: end_host
+      when: docker_bin.rc != 0
+
+    - name: Disk usage before
+      ansible.builtin.command: docker system df
+      register: df_before
+      changed_when: false
+      check_mode: false
+
+    - name: Prune
+      ansible.builtin.command: >-
+        docker system prune --all --force {{ '--volumes' if prune_volumes | bool else '' }}
+      register: prune
+      changed_when: "'Total reclaimed space: 0B' not in prune.stdout"
+
+    - name: Result
+      ansible.builtin.debug:
+        msg:
+          - "{{ df_before.stdout_lines }}"
+          - "{{ prune.stdout_lines[-1] if (prune.stdout_lines | default([]) | length) > 0 else '(check mode: nothing pruned)' }}"

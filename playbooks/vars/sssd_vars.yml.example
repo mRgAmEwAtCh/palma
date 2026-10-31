@@ -1,0 +1,10 @@
+# Copy to sssd_vars.yml (git-ignored) and adjust to your LDAP server.
+# The values below follow the defaults of an Authentik LDAP outpost.
+ldap_uri: "ldap://ldap.example.com:389"
+ldap_base_dn: "dc=ldap,dc=goauthentik,dc=io"
+ldap_bind_dn: "cn=ldap-bind,ou=users,dc=ldap,dc=goauthentik,dc=io"
+ldap_users_base: "ou=users,dc=ldap,dc=goauthentik,dc=io"
+ldap_groups_base: "ou=groups,dc=ldap,dc=goauthentik,dc=io"
+sssd_domain: "example.com"
+sudo_ldap_group: "sudo-users"
+ldap_bind_password: "CHANGE_ME"

@@ -1,0 +1,112 @@
+---
+# Finds Docker Compose stacks (from container labels) and runs "pull" + "up -d" for each.
+# Works with "docker compose" (v2) and "docker-compose" (v1). Hosts without Docker are skipped.
+# Dry run only lists the detected stacks.
+# Extra vars (comma separated lists):
+#   compose_include=stack1,stack2   only these projects (default: all detected)
+#   compose_exclude=stack3          skip these (default: palma, so the app never restarts itself)
+#   compose_include_stopped=false   also handle stacks without running containers
+#   compose_remove_orphans=false    pass --remove-orphans to "up -d"
+#   compose_prune_images=dangling   clean up old images afterwards:
+#                                   dangling = image versions replaced by the update (default, safe)
+#                                   all      = every image not used by any container (also of stopped stacks!)
+#                                   none     = keep everything
+
+- name: Update Docker Compose stacks
+  hosts: all
+  gather_facts: false
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    compose_include: []
+    compose_exclude: [palma]
+    compose_include_stopped: false
+    compose_remove_orphans: false
+    compose_prune_images: dangling
+
+  tasks:
+    - name: Detect compose command
+      ansible.builtin.shell: |
+        if docker compose version >/dev/null 2>&1; then echo "docker compose"
+        elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"
+        fi
+      register: compose_bin
+      changed_when: false
+      check_mode: false
+
+    - name: Skip hosts without Docker Compose
+      ansible.builtin.meta: end_host
+      when: compose_bin.stdout | trim == ''
+
+    - name: Check pull options
+      ansible.builtin.shell: "{{ compose_bin.stdout | trim }} pull --help 2>&1 | grep -q -- --ignore-buildable"
+      register: ignore_buildable
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Discover stacks from container labels
+      ansible.builtin.shell: >-
+        docker ps {{ '--all' if compose_include_stopped | bool else '' }}
+        --filter label=com.docker.compose.project
+        --format '{% raw %}{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.project.working_dir"}}|{{.Label "com.docker.compose.project.config_files"}}{% endraw %}'
+        | sort -u
+      register: discovered
+      changed_when: false
+      check_mode: false
+
+    - name: Select stacks
+      ansible.builtin.set_fact:
+        compose_cmd: "{{ compose_bin.stdout | trim }}"
+        compose_pull_args: "--quiet{{ ' --ignore-buildable' if ignore_buildable.rc == 0 else '' }}"
+        compose_results: []
+        compose_projects: |
+          {% set inc = (compose_include.split(',') if compose_include is string else compose_include) | map('trim') | select | list %}
+          {% set exc = (compose_exclude.split(',') if compose_exclude is string else compose_exclude) | map('trim') | select | list %}
+          {% set ns = namespace(names=[], items=[]) %}
+          {% for line in discovered.stdout_lines %}
+          {%   set p = line.split('|') %}
+          {%   if p | length == 3 and p[0] and p[0] not in ns.names and p[0] not in exc and (not inc or p[0] in inc) %}
+          {%     set ns.names = ns.names + [p[0]] %}
+          {%     set ns.items = ns.items + [{'name': p[0], 'dir': p[1], 'files': p[2].split(',') | map('trim') | select | list}] %}
+          {%   endif %}
+          {% endfor %}
+          {{ ns.items }}
+
+    - name: Detected stacks
+      ansible.builtin.debug:
+        msg: "{{ compose_projects | map(attribute='name') | list or ['(none)'] }}"
+
+    - name: Update stacks
+      ansible.builtin.include_tasks: tasks/compose_project.yml
+      loop: "{{ compose_projects }}"
+      loop_control:
+        loop_var: project
+        label: "{{ project.name }}"
+      when: not ansible_check_mode
+
+    - name: Clean up old images
+      vars:
+        prune_mode: >-
+          {{ 'dangling' if compose_prune_images is sameas true
+             else 'none' if compose_prune_images is sameas false
+             else compose_prune_images | string | lower | trim }}
+      ansible.builtin.command: "docker image prune --force {{ '--all' if prune_mode == 'all' else '' }}"
+      register: prune
+      changed_when: "'Total reclaimed space: 0B' not in prune.stdout"
+      when:
+        - not ansible_check_mode
+        - compose_projects | length > 0
+        - prune_mode in ['dangling', 'all']
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ (compose_results | map('join', ': ') | list or ['nothing to do'])
+             + ([prune.stdout_lines | select('search', 'reclaimed') | first | default('Image cleanup: nothing removed')]
+                if prune is not skipped and prune.stdout_lines is defined else ['Image cleanup: skipped']) }}
+      when: not ansible_check_mode
+
+    - name: Fail if a stack could not be updated
+      ansible.builtin.fail:
+        msg: "Failed stacks: {{ compose_results | selectattr('1', 'search', '^failed') | map('first') | join(', ') }}"
+      when: compose_results | selectattr('1', 'search', '^failed') | list | length > 0

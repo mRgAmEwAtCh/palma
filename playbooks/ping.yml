@@ -1,0 +1,19 @@
+---
+# Connectivity check. Gathers facts and updates OS info (distro/version) for each host in the UI.
+# Safe to run any time; makes no changes.
+
+- name: Ping & gather facts
+  hosts: all
+  gather_facts: true
+
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ ansible_distribution }} {{ ansible_distribution_version }}
+          ({{ ansible_architecture }}, {{ ansible_virtualization_type | default('n/a') }}/{{ ansible_virtualization_role | default('n/a') }}),
+          uptime {{ (ansible_uptime_seconds | default(0) | int / 86400) | round(1) }} days,
+          pkg manager {{ ansible_pkg_mgr }}
