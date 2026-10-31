@@ -34,8 +34,9 @@ Alpine targets.
 - Installable on Android (Chrome → *Add to home screen*).
 - **Tool maintenance check** (Settings tab): compares the installed `ansible-core`, `ansible-runner` and the
   `community.general` collection against the latest releases on PyPI / Ansible Galaxy (cached for 6 h). A dot on the
-  Settings tab signals available updates. Update by pulling a newer image (`docker compose pull && docker compose up -d`)
-  or, when building locally, `docker compose build --pull --no-cache && docker compose up -d`.
+  Settings tab signals available updates. Python and npm dependencies are pinned and kept current by
+  [Dependabot](.github/dependabot.yml); after merging an update, pull the new image (`docker compose pull && docker compose
+  up -d`) or, when building locally, `git pull && docker compose up -d --build`.
 
 ## Architecture
 
@@ -198,7 +199,7 @@ you want.
 ```bash
 # backend
 cd backend
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 ansible-galaxy collection install -r ../playbooks/requirements.yml
 AUTH_DISABLED=true SSH_KEY_PATH=~/.ssh/id_ed25519 .venv/bin/uvicorn app.main:app --reload --port 8000
 .venv/bin/python -m pytest
@@ -215,6 +216,20 @@ All settings are environment variables (see `.env.example`): `PUBLIC_URL`, `SESS
 `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_SCOPES`, `OIDC_ALLOWED_GROUPS`, `ADMIN_USERNAME`,
 `ADMIN_PASSWORD`, `AUTH_DISABLED`, `TIMEZONE`,
 `DEFAULT_SSH_USER`, `SSH_KEY_PATH`, `SSH_KEY_DIR`, `DATA_DIR`, `PLAYBOOKS_DIR`, `BIND_ADDRESS`, `PORT`.
+
+## Dependency updates
+
+[Dependabot](.github/dependabot.yml) checks every Monday and opens pull requests for:
+
+| Ecosystem | Files | Grouping |
+|-----------|-------|----------|
+| pip | `backend/requirements.txt`, `backend/requirements-dev.txt` (exact pins) | minor + patch in one PR, majors separately |
+| npm | `frontend/package.json`, `package-lock.json` | minor + patch in one PR, majors separately |
+| Docker | base images in the `Dockerfile` | one PR per image |
+| GitHub Actions | `.github/workflows/*.yml` | one PR for all actions |
+
+Each PR runs the CI workflow (tests, frontend build, image build). The Ansible collection in
+`playbooks/requirements.yml` is not covered by Dependabot; the tool maintenance check in the app reports its updates.
 
 ## License
 

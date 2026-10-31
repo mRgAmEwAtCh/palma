@@ -1,0 +1,62 @@
+# Dependabot version updates: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+# Minor/patch updates are grouped into one PR per ecosystem per week; major updates get their own PRs.
+# Every PR runs the "CI & Docker" workflow (tests, frontend build, image build without push).
+version: 2
+
+updates:
+  # Backend: Python packages (backend/requirements.txt, backend/requirements-dev.txt)
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps(backend)"
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  # Frontend: npm packages (frontend/package.json + package-lock.json)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    commit-message:
+      prefix: "deps(frontend)"
+      prefix-development: "deps-dev(frontend)"
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  # Base images of backend and frontend (python:3.13-slim, node:24-alpine in the Dockerfile)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Actions used by the CI & Docker workflow
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    commit-message:
+      prefix: "deps(ci)"
+    groups:
+      github-actions:
+        patterns: ["*"]

@@ -4,7 +4,7 @@ import type { ToolVersions } from '../types'
 import { timeAgo } from '../util'
 import { toast } from './Toast'
 
-const UPDATE_CMD = 'cd /opt/palma && docker compose build --pull --no-cache && docker compose up -d'
+const UPDATE_CMD = 'docker compose pull && docker compose up -d'
 
 interface Props {
   versions: ToolVersions | null
@@ -75,7 +75,11 @@ export function ToolVersionsCard({ versions, onChange }: Props) {
 
       {versions?.update_available && (
         <>
-          <p className="muted small">Rebuild the container on the Docker host to install the latest releases:</p>
+          <p className="muted small">
+            Dependencies are pinned and updated via Dependabot pull requests. Once the update is merged and released,
+            update the container on the Docker host (or rebuild it with <code>docker compose up -d --build</code> after{' '}
+            <code>git pull</code>):
+          </p>
           <pre className="log wrap selectable">{UPDATE_CMD}</pre>
         </>
       )}
