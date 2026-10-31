@@ -46,6 +46,11 @@ updates:
       timezone: Europe/Berlin
     commit-message:
       prefix: "deps(docker)"
+    ignore:
+      # ansible-core 2.21 supports Python 3.12-3.14 only; on 3.15 every Ansible CLI crashes at import
+      # (dataclasses._is_type was removed). Remove this rule once ansible-core 2.22 is pinned.
+      - dependency-name: python
+        versions: [">= 3.15"]
 
   # Actions used by the CI & Docker workflow
   - package-ecosystem: github-actions
