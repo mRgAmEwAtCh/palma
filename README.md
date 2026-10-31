@@ -235,9 +235,4 @@ Each PR runs the CI workflow (tests, frontend build, image build). The Ansible c
 
 [MIT](LICENSE) © 2026 Thomas Kuhnke
 
-## Name
-
-*Palma* is Latin/Spanish for the palm of the hand, because this app is meant to be used from your phone. It is also an
-acronym: **P**roxmox **A**nd **L**inux **M**aintenance via **A**nsible.
-
 Palma is an independent project and is not affiliated with or endorsed by Red Hat (Ansible) or Proxmox Server Solutions.
