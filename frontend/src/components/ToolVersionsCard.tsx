@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { ToolVersions } from '../types'
 import { timeAgo } from '../util'
 import { toast } from './Toast'
+import { ChevronDownIcon } from './Icons'
 
 const UPDATE_CMD = 'docker compose pull && docker compose up -d'
 
@@ -26,15 +27,20 @@ export function ToolVersionsCard({ versions, onChange }: Props) {
   }
 
   return (
-    <section className="card">
-      <div className="row">
-        <div className="card-title grow">Tool maintenance</div>
+    <details className="card collapsible-card">
+      <summary className="card-title">
+        <span className="grow collapse-title">Tool maintenance</span>
         {versions && (
-          <span className={`badge ${versions.update_available ? 'badge-pending' : 'badge-ok'}`}>
-            {versions.update_available ? 'Update available' : 'Up to date'}
+          <span
+            className={`badge maintenance-status ${versions.update_available ? 'badge-pending' : 'badge-ok'}`}
+            title={versions.update_available ? 'Tool updates available' : 'All tools are up to date'}
+          >
+            {versions.update_available ? 'Updates' : 'Current'}
           </span>
         )}
-      </div>
+        <ChevronDownIcon className="collapse-chevron" width={20} height={20} />
+      </summary>
+      <div className="collapsible-content">
 
       {!versions ? (
         <div className="muted small">Checking versions…</div>
@@ -90,7 +96,8 @@ export function ToolVersionsCard({ versions, onChange }: Props) {
           {busy ? 'Checking…' : 'Check now'}
         </button>
       </div>
-    </section>
+      </div>
+    </details>
   )
 }
 

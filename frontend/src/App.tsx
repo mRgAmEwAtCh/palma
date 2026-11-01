@@ -14,6 +14,7 @@ import { RunPage } from './pages/RunPage'
 import { SchedulesPage } from './pages/SchedulesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import type { Me, ToolVersions } from './types'
+import { ThemeProvider } from './theme'
 
 const TABS = [
   { to: '/', label: 'Run', icon: PlayIcon, end: true },
@@ -59,8 +60,12 @@ function TabBar({ updateAvailable }: { updateAvailable: boolean }) {
 }
 
 export default function App() {
-  if (window.location.pathname === '/login') return <LoginPage />
-  return <AuthenticatedApp />
+  return (
+    <ThemeProvider>
+      {window.location.pathname === '/login' ? <LoginPage /> : <AuthenticatedApp />}
+      <Toaster />
+    </ThemeProvider>
+  )
 }
 
 function AuthenticatedApp() {
@@ -112,7 +117,6 @@ function AuthenticatedApp() {
         </Routes>
       </main>
       <TabBar updateAvailable={Boolean(versions?.update_available)} />
-      <Toaster />
     </BrowserRouter>
   )
 }

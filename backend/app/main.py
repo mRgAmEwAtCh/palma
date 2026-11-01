@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, runner, scheduler
+from . import auth, runner, scheduler, theme
 from .config import get_settings
 from .db import init_db
 from .routers import hosts, keys, playbooks, proxmox, runs, schedules, system
@@ -38,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(theme.router)
 protected = [Depends(auth.current_user)]
 app.include_router(system.router, prefix="/api")
 for r in (hosts.router, keys.router, playbooks.router, proxmox.router, runs.router, schedules.router):

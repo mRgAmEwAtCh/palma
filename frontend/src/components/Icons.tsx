@@ -63,6 +63,11 @@ export const BackIcon = (p: SVGProps<SVGSVGElement>) => (
     <polyline points="15 18 9 12 15 6" />
   </svg>
 )
+export const ChevronDownIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)
 export const SearchIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <circle cx="11" cy="11" r="7" />
