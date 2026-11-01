@@ -16,7 +16,7 @@ def client():
 
 def test_playbook_catalog_lists_starter_playbooks():
     paths = {p.path for p in list_playbooks()}
-    assert {"ping.yml", "update.yml", "reboot.yml", "health.yml", "docker_cleanup.yml", "bootstrap.yml"} <= paths
+    assert {"ping.yml", "update.yml", "reboot.yml", "safe_reboot.yml", "health.yml", "docker_cleanup.yml", "bootstrap.yml"} <= paths
     assert "requirements.yml" not in paths
     ping = next(p for p in list_playbooks() if p.path == "ping.yml")
     assert ping.title == "Ping & gather facts"
@@ -26,6 +26,12 @@ def test_playbook_catalog_lists_starter_playbooks():
     assert by_path["update.yml"].vars == {"apt_upgrade_mode": "dist", "autoremove": True}
     assert by_path["docker_compose_update.yml"].vars["compose_exclude"] == ["palma"]
     assert by_path["reboot.yml"].vars == {"force_reboot": False, "reboot_serial": 1}
+    assert by_path["safe_reboot.yml"].vars == {
+        "reboot_requested": False,
+        "reboot_timeout": 600,
+        "pre_reboot_delay": 60,
+        "allow_proxmox_host_reboot": False,
+    }
 
 
 def test_templated_play_vars_are_not_defaults(tmp_path):

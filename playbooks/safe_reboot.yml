@@ -1,0 +1,73 @@
+---
+# Gracefully reboots selected Linux devices one at a time and waits for each to return.
+# Acts when /var/run/reboot-required exists or reboot_requested=true.
+# Proxmox nodes require allow_proxmox_host_reboot=true to acknowledge guest downtime.
+# Proxmox performs its normal guest shutdown; no forced reboot or automatic migration.
+# Never select Palma's own host or its Proxmox node: stopping Palma interrupts this run.
+# Extra vars: reboot_requested (false), reboot_timeout (600), pre_reboot_delay (60), allow_proxmox_host_reboot (false)
+
+- name: Safe reboot request
+  hosts: all
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  become: "{{ ansible_user != 'root' }}"
+  vars:
+    reboot_requested: false
+    reboot_timeout: 600
+    pre_reboot_delay: 60
+    allow_proxmox_host_reboot: false
+
+  tasks:
+    - name: Validate target and reboot settings
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.system == 'Linux'
+          - reboot_requested is boolean
+          - allow_proxmox_host_reboot is boolean
+          - reboot_timeout | int > 0
+          - pre_reboot_delay | int >= 0
+        fail_msg: "Requires Linux, boolean approval flags, a positive timeout and a non-negative delay."
+
+    - name: Check reboot-required flag
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Detect Proxmox node
+      ansible.builtin.stat:
+        path: /usr/bin/pveversion
+      register: proxmox_node
+
+    - name: Determine whether a reboot is requested
+      ansible.builtin.set_fact:
+        reboot_needed: "{{ reboot_requested or reboot_flag.stat.exists }}"
+
+    - name: Require acknowledgement of Proxmox guest downtime
+      ansible.builtin.assert:
+        that: allow_proxmox_host_reboot
+        fail_msg: >-
+          Proxmox node reboot requires allow_proxmox_host_reboot=true.
+          Confirm guest downtime, guest shutdown settings and cluster quorum first.
+          Do not reboot the node hosting Palma.
+      when: reboot_needed and proxmox_node.stat.exists
+
+    - name: Preview reboot
+      ansible.builtin.debug:
+        msg: "Would gracefully reboot this device and wait for it to return."
+      when: ansible_check_mode and reboot_needed
+
+    - name: Reboot gracefully and wait for recovery
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        pre_reboot_delay: "{{ pre_reboot_delay }}"
+        boot_time_command: >-
+          {{ 'uptime -s' if ansible_facts.virtualization_type | default('') == 'lxc'
+             else 'cat /proc/sys/kernel/random/boot_id' }}
+        msg: "Safe reboot requested via Palma"
+      when: reboot_needed and not ansible_check_mode
+
+    - name: Report no reboot needed
+      ansible.builtin.debug:
+        msg: "No reboot requested and no reboot-required flag found."
+      when: not reboot_needed

@@ -58,10 +58,19 @@ becomes an inventory group, so playbooks should target `hosts: all`.
 | `bootstrap.yml`       | Installs `python3` via raw commands (fresh Alpine/Debian LXCs)                                 |
 | `update.yml`          | `apt dist-upgrade` / `apk upgrade` / `omv-upgrade`, reports whether a reboot is required        |
 | `reboot.yml`          | Reboots hosts with `/var/run/reboot-required` (or all with `force_reboot=true`), one at a time |
+| `safe_reboot.yml`     | Graceful reboot request for LXC guests, Proxmox hosts and bare-metal Linux boxes, with Proxmox host protection |
 | `health.yml`          | Docker container state, disk usage, pending updates, reboot flag, failed systemd units; sets the host health labels |
 | `docker_cleanup.yml`  | `docker system prune -a` on hosts with Docker (`prune_volumes=true` to include volumes)         |
 | `docker_compose_update.yml` | Detects Compose stacks via container labels, runs `pull` + `up -d` per stack, then removes the replaced images (`compose_include`/`compose_exclude`, `compose_prune_images=dangling\|all\|none`). Dry run lists the detected stacks |
 | `sssd_ldap.yml`       | Authentik LDAP login via SSSD (Debian/Ubuntu); needs `playbooks/vars/sssd_vars.yml`             |
+
+For `safe_reboot.yml`, set `reboot_requested: true` to reboot even without the reboot-required flag.
+Proxmox nodes also require `allow_proxmox_host_reboot: true` to explicitly acknowledge guest downtime.
+The playbook uses normal OS shutdown (including Proxmox guest shutdown), waits for recovery, and stops
+the run on failure before rebooting another device. It does not migrate guests, force a reboot, or
+verify cluster quorum. Check guest shutdown settings and quorum before approval. Never select Palma's
+own host or its Proxmox node. Dry run checks the safeguards and previews reboots without requesting them.
+LXC guests are managed over SSH and need Python and a working init system.
 
 Add your own playbooks in the UI (**Settings → Manage playbooks**, or **Edit** / **Manage playbooks…** in the playbook
 picker), or drop a `.yml` file into `playbooks/`. The first play's `name` is used as the title, the leading `#` comment
@@ -195,6 +204,7 @@ you want.
 > The Proxmox token secret is stored in the SQLite database in `data/`. Protect that directory accordingly.
 
 ## Development
+
 
 ```bash
 # backend

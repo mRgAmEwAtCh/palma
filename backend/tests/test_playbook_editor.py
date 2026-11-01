@@ -1,12 +1,15 @@
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
-from app.playbook_editor import validate
+from app.playbook_editor import AnsibleLoader, validate
 
 VALID = """---
 # Says hello.
@@ -21,6 +24,26 @@ VALID = """---
       ansible.builtin.debug:
         msg: "{{ greeting }}"
 """
+
+PLAYBOOKS = Path(__file__).resolve().parents[2] / "playbooks"
+
+
+def test_safe_reboot_module_options_and_sequencing():
+    play = yaml.load((PLAYBOOKS / "safe_reboot.yml").read_text(encoding="utf-8"), Loader=AnsibleLoader)[0]
+    assert play["serial"] == 1
+    assert play["any_errors_fatal"] is True
+    reboot = next(task for task in play["tasks"] if "ansible.builtin.reboot" in task)
+    assert reboot["when"] == "reboot_needed and not ansible_check_mode"
+
+    result = subprocess.run(
+        ["ansible-doc", "--json", "ansible.builtin.reboot"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    options = json.loads(result.stdout)["ansible.builtin.reboot"]["doc"]["options"]
+    assert set(reboot["ansible.builtin.reboot"]) <= set(options)
 
 
 @pytest.fixture()
