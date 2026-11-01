@@ -27,7 +27,7 @@ def test_versions_endpoint_offline_safe(monkeypatch):
         return "99.0.0", "2026-01-01T00:00:00Z", f"https://pypi.org/project/{name}/"
 
     async def failing_galaxy(client, fqcn):
-        raise versions.httpx.ConnectError("offline")
+        raise versions.httpx2.ConnectError("offline")
 
     monkeypatch.setattr(versions, "_latest_pypi", fake_pypi)
     monkeypatch.setattr(versions, "_latest_galaxy", failing_galaxy)

@@ -1,8 +1,40 @@
+import asyncio
+from urllib.parse import parse_qs
+
+import httpx2
 import pytest
+from authlib.integrations.httpx_client import AsyncOAuth2Client
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+
+
+def test_authlib_token_exchange_uses_httpx2():
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "POST"
+        assert str(request.url) == "https://auth.example.com/token"
+        form = parse_qs(request.content.decode())
+        assert form["grant_type"] == ["authorization_code"]
+        assert form["code"] == ["test-code"]
+        assert form["client_id"] == ["test-client"]
+        assert form["client_secret"] == ["test-secret"]
+        return httpx2.Response(
+            200, json={"access_token": "test-token", "token_type": "Bearer", "expires_in": 3600}
+        )
+
+    async def exchange():
+        async with AsyncOAuth2Client(
+            client_id="test-client",
+            client_secret="test-secret",
+            token_endpoint_auth_method="client_secret_post",
+            transport=httpx2.MockTransport(handler),
+        ) as client:
+            assert isinstance(client, httpx2.AsyncClient)
+            token = await client.fetch_token("https://auth.example.com/token", code="test-code")
+            assert token["access_token"] == "test-token"
+
+    asyncio.run(exchange())
 
 
 @pytest.fixture()

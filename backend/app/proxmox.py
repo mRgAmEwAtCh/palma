@@ -4,7 +4,7 @@ import ipaddress
 import re
 from typing import Any
 
-import httpx
+import httpx2
 
 from .models import ProxmoxSource
 
@@ -70,13 +70,13 @@ def _missing_permission_hint(src: ProxmoxSource) -> str:
     )
 
 
-def _client(src: ProxmoxSource, transport: httpx.AsyncBaseTransport | None) -> tuple[httpx.AsyncClient, str]:
+def _client(src: ProxmoxSource, transport: httpx2.AsyncBaseTransport | None) -> tuple[httpx2.AsyncClient, str]:
     base = normalize_url(src.url) + "/api2/json"
     headers = {"Authorization": f"PVEAPIToken={src.token_id}={src.token_secret}"}
-    return httpx.AsyncClient(base_url=base, headers=headers, verify=src.verify_ssl, timeout=15, transport=transport), base
+    return httpx2.AsyncClient(base_url=base, headers=headers, verify=src.verify_ssl, timeout=15, transport=transport), base
 
 
-async def discover_guests(src: ProxmoxSource, transport: httpx.AsyncBaseTransport | None = None) -> dict[str, Any]:
+async def discover_guests(src: ProxmoxSource, transport: httpx2.AsyncBaseTransport | None = None) -> dict[str, Any]:
     """Returns {"nodes": [...], "guests": [...], "warning": str | None}.
 
     Each guest: vmid, type (lxc|qemu), node, name, status, ip, ostype, tags, manageable, note.
@@ -94,14 +94,14 @@ async def discover_guests(src: ProxmoxSource, transport: httpx.AsyncBaseTranspor
         async def get_or_none(path: str) -> Any:
             try:
                 return await get(path)
-            except httpx.HTTPError:
+            except httpx2.HTTPError:
                 return None
 
         try:
             nodes = await get("/nodes")
-        except httpx.HTTPStatusError as exc:
+        except httpx2.HTTPStatusError as exc:
             raise ProxmoxError(f"Proxmox API error at {base}: HTTP {exc.response.status_code}") from exc
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             raise ProxmoxError(f"Cannot reach {base}: {exc}") from exc
 
         node_names: list[str] = []
@@ -153,7 +153,7 @@ async def _lxc(get_or_none, node: str, ct: dict) -> dict[str, Any]:
     }
 
 
-async def _qemu(c: httpx.AsyncClient, get_or_none, node: str, vm: dict) -> dict[str, Any]:
+async def _qemu(c: httpx2.AsyncClient, get_or_none, node: str, vm: dict) -> dict[str, Any]:
     vmid = int(vm["vmid"])
     config = await get_or_none(f"/nodes/{node}/qemu/{vmid}/config") or {}
     cfg_ostype = str(config.get("ostype") or "")
@@ -199,13 +199,13 @@ async def _qemu(c: httpx.AsyncClient, get_or_none, node: str, vm: dict) -> dict[
     }
 
 
-async def node_addresses(src: ProxmoxSource, transport: httpx.AsyncBaseTransport | None = None) -> dict[str, str]:
+async def node_addresses(src: ProxmoxSource, transport: httpx2.AsyncBaseTransport | None = None) -> dict[str, str]:
     """Node name -> IP from /cluster/status (also works for single, unclustered nodes)."""
     client, base = _client(src, transport)
     async with client as c:
         try:
             r = await c.get("/cluster/status")
             r.raise_for_status()
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             raise ProxmoxError(f"Cannot read node addresses from {base}: {exc}") from exc
         return {e["name"]: e["ip"] for e in r.json()["data"] if e.get("type") == "node" and e.get("ip")}

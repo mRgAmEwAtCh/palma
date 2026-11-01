@@ -1,6 +1,6 @@
 import asyncio
 
-import httpx
+import httpx2
 import pytest
 
 from app.models import ProxmoxSource
@@ -25,11 +25,11 @@ SRC = ProxmoxSource(id=1, name="pve", url="https://pve.test/api2/json", token_id
 
 
 def _transport(lxc: list, permissions: dict, status: int = 200, qemu: list | None = None):
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         assert path.startswith("/api2/json/") and not path.startswith("/api2/json/api2")
         if status != 200:
-            return httpx.Response(status)
+            return httpx2.Response(status)
         routes = {
             "/api2/json/nodes": [{"node": "n1", "status": "online"}],
             "/api2/json/nodes/n1/lxc": lxc,
@@ -51,10 +51,10 @@ def _transport(lxc: list, permissions: dict, status: int = 200, qemu: list | Non
             "/api2/json/nodes/n1/qemu/150/agent/get-osinfo": {"result": {"id": "haos", "pretty-name": "Home Assistant OS"}},
         }
         if path == "/api2/json/nodes/n1/qemu/152/agent/network-get-interfaces":
-            return httpx.Response(500, json={"data": None})
-        return httpx.Response(200, json={"data": routes[path]})
+            return httpx2.Response(500, json={"data": None})
+        return httpx2.Response(200, json={"data": routes[path]})
 
-    return httpx.MockTransport(handler)
+    return httpx2.MockTransport(handler)
 
 
 def test_discover_finds_containers():

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-import httpx
+import httpx2
 from packaging.version import InvalidVersion, Version
 
 log = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def _installed_collection(fqcn: str) -> str | None:
     return None
 
 
-async def _latest_pypi(client: httpx.AsyncClient, name: str) -> tuple[str, str | None, str]:
+async def _latest_pypi(client: httpx2.AsyncClient, name: str) -> tuple[str, str | None, str]:
     r = await client.get(f"https://pypi.org/pypi/{name}/json")
     r.raise_for_status()
     data = r.json()
@@ -79,7 +79,7 @@ async def _latest_pypi(client: httpx.AsyncClient, name: str) -> tuple[str, str |
     return latest, files[0].get("upload_time_iso_8601"), f"https://pypi.org/project/{name}/{latest}/"
 
 
-async def _latest_galaxy(client: httpx.AsyncClient, fqcn: str) -> tuple[str, str | None, str]:
+async def _latest_galaxy(client: httpx2.AsyncClient, fqcn: str) -> tuple[str, str | None, str]:
     namespace, name = fqcn.split(".", 1)
     r = await client.get(f"{GALAXY_INDEX}/{namespace}/{name}/")
     r.raise_for_status()
@@ -88,13 +88,13 @@ async def _latest_galaxy(client: httpx.AsyncClient, fqcn: str) -> tuple[str, str
     return latest, data.get("updated_at"), f"https://galaxy.ansible.com/ui/repo/published/{namespace}/{name}/"
 
 
-async def _check_component(client: httpx.AsyncClient, comp: dict[str, str]) -> dict[str, Any]:
+async def _check_component(client: httpx2.AsyncClient, comp: dict[str, str]) -> dict[str, Any]:
     is_pypi = comp["source"] == "pypi"
     installed = await asyncio.to_thread(_installed_package if is_pypi else _installed_collection, comp["name"])
     latest = released = url = error = None
     try:
         latest, released, url = await (_latest_pypi if is_pypi else _latest_galaxy)(client, comp["name"])
-    except (httpx.HTTPError, KeyError, ValueError) as exc:
+    except (httpx2.HTTPError, KeyError, ValueError) as exc:
         error = f"Could not fetch latest release: {exc.__class__.__name__}"
     status, level = compare(installed, latest)
     return {
@@ -113,7 +113,7 @@ async def check_versions(refresh: bool = False) -> dict[str, Any]:
     async with _lock:
         if not refresh and _cache["data"] and time.monotonic() - _cache["at"] < CACHE_TTL_SECONDS:
             return _cache["data"]
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+        async with httpx2.AsyncClient(timeout=10, follow_redirects=True) as client:
             components = await asyncio.gather(*(_check_component(client, c) for c in COMPONENTS))
         data = {
             "checked_at": datetime.now(timezone.utc).isoformat(),

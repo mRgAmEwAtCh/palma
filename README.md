@@ -47,6 +47,9 @@ Alpine targets.
 | Playbooks | `playbooks/*.yml`, mounted into the container and listed automatically     |
 | Deploy    | Single Docker container via Docker Compose                              |
 
+HTTP clients (Proxmox API, release checks and Authlib OIDC) use `httpx2`; the FastAPI/Starlette
+test client uses the same transport dependency.
+
 For every run, an inventory is generated from just the selected hosts. Each tag and host type (`lxc`, `baremetal`, …)
 becomes an inventory group, so playbooks should target `hosts: all`.
 
