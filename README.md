@@ -205,6 +205,32 @@ you want.
 
 ## Development
 
+### Containerized tests and validation
+
+With Docker Desktop running in Linux-container mode (or Docker Engine with Compose), run from the repository root:
+
+```bash
+docker compose -f docker-compose.tests.yml run --build --rm validation
+```
+
+This builds/type-checks the frontend, runs the backend pytest suite, and validates every starter playbook
+using the editor's YAML/structure checks and `ansible-playbook --syntax-check`. Dependencies use the
+existing pinned requirements and lockfile. Image builds need internet access; the test container has
+no network, host mounts, published ports, SSH keys, production environment file, or Docker socket.
+SSSD validation uses a temporary copy of the checked-in example variables, not real LDAP credentials.
+Tests operate on copies of the playbooks and temporary databases.
+
+To run only playbook validation and editor tests:
+
+```bash
+docker compose -f docker-compose.tests.yml run --build --rm validation python -m pytest -q tests/test_playbook_editor.py
+```
+
+Rebuilds reuse cached dependency/frontend layers. A nonzero exit code means validation failed.
+These checks never reboot a device and do not prove recovery on real LXC, Proxmox or bare-metal targets;
+test that separately on disposable devices. The parametrized playbook checks also run in the existing CI backend job.
+
+### Local development
 
 ```bash
 # backend

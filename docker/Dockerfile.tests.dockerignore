@@ -1,0 +1,17 @@
+**
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+!playbooks/
+!playbooks/**
+!docker/
+!docker/Dockerfile.tests
+!docker/Dockerfile.tests.dockerignore
+backend/.venv
+**/__pycache__
+**/.pytest_cache
+frontend/node_modules
+frontend/dist
+playbooks/vars/*.yml
+playbooks/vars/*.yaml

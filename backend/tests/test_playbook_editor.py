@@ -28,6 +28,22 @@ VALID = """---
 PLAYBOOKS = Path(__file__).resolve().parents[2] / "playbooks"
 
 
+@pytest.mark.parametrize(
+    "path",
+    sorted(p for p in PLAYBOOKS.iterdir() if p.suffix in {".yml", ".yaml"} and p.stem != "requirements"),
+    ids=lambda path: path.name,
+)
+def test_starter_playbook_validation(path, tmp_path, monkeypatch):
+    root = tmp_path / "playbooks"
+    shutil.copytree(PLAYBOOKS, root, ignore=shutil.ignore_patterns("sssd_vars.yml"))
+    shutil.copyfile(root / "vars" / "sssd_vars.yml.example", root / "vars" / "sssd_vars.yml")
+    monkeypatch.setattr(get_settings(), "playbooks_dir", root)
+
+    result = validate((root / path.name).read_text(encoding="utf-8"), path.name)
+    assert result.valid, result.dict()
+    assert not any("syntax check unavailable" in issue.message.lower() for issue in result.warnings), result.dict()
+
+
 def test_safe_reboot_module_options_and_sequencing():
     play = yaml.load((PLAYBOOKS / "safe_reboot.yml").read_text(encoding="utf-8"), Loader=AnsibleLoader)[0]
     assert play["serial"] == 1
