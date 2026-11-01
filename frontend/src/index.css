@@ -7,10 +7,14 @@
   --text: #ececec;
   --muted: #9c9c9c;
   --accent: #f4a63c;
+  --accent-text: #f4a63c;
   --accent-2: #3fb950;
   --accent-soft: rgba(244, 166, 60, 0.07);
   --on-accent: #1b1407;
+  --topbar-bg: rgba(10, 10, 10, 0.92);
+  --log-bg: #050505;
   --brand-gradient: linear-gradient(135deg, #f4a63c 0%, #3fb950 100%);
+  --primary-fill: var(--brand-gradient);
   --brand-gradient-h: linear-gradient(90deg, #f4a63c 0%, #3fb950 100%);
   --ok: #3fb950;
   --warn: #e3b341;
@@ -49,7 +53,7 @@ h2 {
   font-size: 1.05rem;
 }
 a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 code,
 .mono {
@@ -67,7 +71,7 @@ code,
   gap: 12px;
   justify-content: space-between;
   padding: 0 16px;
-  background: rgba(10, 10, 10, 0.92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -134,7 +138,7 @@ main {
   text-decoration: none;
 }
 .tab.active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .tab-icon {
   position: relative;
@@ -360,7 +364,7 @@ main {
   cursor: default;
 }
 .btn-primary {
-  background: var(--brand-gradient);
+  background: var(--primary-fill);
   border-color: transparent;
   color: var(--on-accent);
   font-weight: 600;
@@ -492,8 +496,8 @@ main {
   color: var(--ok);
 }
 .badge-changed {
-  background: rgba(244, 166, 60, 0.16);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-text);
 }
 .badge-failed,
 .badge-error,
@@ -546,7 +550,7 @@ main {
 .log {
   margin: 0;
   padding: 10px;
-  background: #050505;
+  background: var(--log-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -759,7 +763,7 @@ label.switch input {
   font-size: 0.85rem;
 }
 .login-tagline b {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .login-logo {
   align-self: center;
@@ -809,7 +813,7 @@ label.switch input {
   white-space: pre;
   overflow: auto;
   resize: none;
-  background: #050505;
+  background: var(--log-bg);
   min-height: 320px;
   height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - var(--safe-bottom) - 190px);
 }
@@ -996,6 +1000,88 @@ input[type='checkbox']:focus {
 input[type='checkbox']:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.collapsible-card {
+  display: block;
+}
+.collapsible-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  min-height: 44px;
+}
+.collapsible-card summary::-webkit-details-marker {
+  display: none;
+}
+.collapse-chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+.collapse-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.maintenance-status {
+  flex: none;
+  align-self: center;
+  white-space: nowrap;
+  text-align: center;
+}
+.collapsible-card[open] .collapse-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .collapse-chevron {
+    transition: none;
+  }
+}
+.collapsible-card summary:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.collapsible-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.theme-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.theme-fields label {
+  flex: 1;
+  min-width: 150px;
+}
+.theme-fields input[type='color'] {
+  width: 100%;
+  height: 44px;
+  padding: 4px;
+  cursor: pointer;
+}
+.theme-preview {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.theme-secondary {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 8px;
+  border-bottom: 4px solid var(--accent-2);
 }
 .check-card input[type='checkbox'] {
   width: 24px;

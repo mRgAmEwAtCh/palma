@@ -1,3 +1,26 @@
+export interface ThemeSettings {
+  primary: string
+  secondary: string
+  background: 'graphite' | 'midnight' | 'slate' | 'forest'
+}
+
+export interface ThemePreset {
+  id: ThemeSettings['background']
+  name: string
+  bg: string
+  surface: string
+  surface2: string
+  border: string
+  text: string
+  muted: string
+}
+
+export interface ThemeCatalog {
+  theme: ThemeSettings
+  defaults: ThemeSettings
+  presets: ThemePreset[]
+}
+
 export interface Host {
   id: number
   name: string

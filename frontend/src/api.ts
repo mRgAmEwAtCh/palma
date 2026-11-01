@@ -14,6 +14,8 @@ import type {
   CronPreview,
   SystemInfo,
   ToolVersions,
+  ThemeCatalog,
+  ThemeSettings,
 } from './types'
 
 export class ApiError extends Error {
@@ -58,6 +60,9 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
+  theme: () => request<ThemeCatalog>('GET', '/api/theme'),
+  saveTheme: (theme: ThemeSettings) => request<ThemeSettings>('PUT', '/api/theme', theme),
+  resetTheme: () => request<ThemeSettings>('DELETE', '/api/theme'),
   me: () => request<Me>('GET', '/api/me'),
   localLogin: (username: string, password: string) =>
     request<{ ok: boolean }>('POST', '/auth/local', { username, password }),

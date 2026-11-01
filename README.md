@@ -31,8 +31,14 @@ Alpine targets.
   units, colored ok / warning / critical, with details in the host sheet.
 - **Login via Authentik (OIDC)**, optionally restricted to Authentik groups, with a **local admin login as fallback**
   when no OIDC is configured.
+- **System-wide theme** (Settings, collapsed by default): expand System theme to choose primary/secondary colors with color pickers and a Graphite,
+  Midnight, Slate or Forest background. Save persists the theme in SQLite for everyone, including login;
+  **Reset to default** restores Palma's original theme. Open clients refresh within 30 seconds or on focus.
+  Unsaved changes stay in the preview. Status colors remain unchanged; accent text and button fills are
+  adjusted when needed for readable contrast. Theme changes require login (unless authentication is disabled).
+  The public theme endpoint exposes only colors/presets so login can use the shared appearance.
 - Installable on Android (Chrome → *Add to home screen*).
-- **Tool maintenance check** (Settings tab): compares the installed `ansible-core`, `ansible-runner` and the
+- **Tool maintenance check** (Settings tab, collapsed by default with status visible): expand to compare the installed `ansible-core`, `ansible-runner` and the
   `community.general` collection against the latest releases on PyPI / Ansible Galaxy (cached for 6 h). A dot on the
   Settings tab signals available updates. Python and npm dependencies are pinned and kept current by
   [Dependabot](.github/dependabot.yml); after merging an update, pull the new image (`docker compose pull && docker compose

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { toast } from '../components/Toast'
 import { ToolVersionsCard } from '../components/ToolVersionsCard'
+import { ThemeCard } from '../components/ThemeCard'
 import type { Me, SystemInfo, ToolVersions } from '../types'
 
 interface Props {
@@ -44,6 +45,8 @@ export function SettingsPage({ me, versions, onVersions }: Props) {
           </>
         )}
       </section>
+
+      <ThemeCard />
 
       <section className="card">
         <div className="card-title">Controller SSH key</div>
