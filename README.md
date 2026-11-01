@@ -210,6 +210,8 @@ you want.
 With Docker Desktop running in Linux-container mode (or Docker Engine with Compose), run from the repository root:
 
 ```bash
+sh test.sh
+# Equivalent Docker command:
 docker compose -f docker-compose.tests.yml run --build --rm validation
 ```
 
@@ -223,8 +225,11 @@ Tests operate on copies of the playbooks and temporary databases.
 To run only playbook validation and editor tests:
 
 ```bash
-docker compose -f docker-compose.tests.yml run --build --rm validation python -m pytest -q tests/test_playbook_editor.py
+sh test.sh tests/test_playbook_editor.py
 ```
+
+`test.sh` works from any directory and forwards all arguments to pytest, for example
+`sh /path/to/palma/test.sh -k safe_reboot`. Use a POSIX shell on Linux/macOS or Git Bash/WSL on Windows.
 
 Rebuilds reuse cached dependency/frontend layers. A nonzero exit code means validation failed.
 These checks never reboot a device and do not prove recovery on real LXC, Proxmox or bare-metal targets;
