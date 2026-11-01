@@ -222,13 +222,26 @@ no network, host mounts, published ports, SSH keys, production environment file,
 SSSD validation uses a temporary copy of the checked-in example variables, not real LDAP credentials.
 Tests operate on copies of the playbooks and temporary databases.
 
-To run only playbook validation and editor tests:
+For a syntax check of just one playbook, without building the frontend or installing backend/test
+dependencies:
+
+```bash
+sh test.sh --playbook safe_reboot.yml
+```
+
+This uses a separate Docker build target with only the pinned Ansible version and required collections.
+It skips Node/npm, the frontend build, backend code/dependencies, pytest and OS package installation.
+Pass a top-level playbook filename (not a path). The playbook directory is copied to preserve relative
+includes; SSSD uses example variables. This mode performs Ansible syntax checking only, not the editor
+tests, module argument validation, or execution on a target device.
+
+To run playbook validation and editor tests using the full test image:
 
 ```bash
 sh test.sh tests/test_playbook_editor.py
 ```
 
-`test.sh` works from any directory and forwards all arguments to pytest, for example
+`test.sh` works from any directory and, except in `--playbook` mode, forwards all arguments to pytest, for example
 `sh /path/to/palma/test.sh -k safe_reboot`. Use a POSIX shell on Linux/macOS or Git Bash/WSL on Windows.
 
 Rebuilds reuse cached dependency/frontend layers. A nonzero exit code means validation failed.

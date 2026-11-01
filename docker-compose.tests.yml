@@ -3,4 +3,11 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.tests
+      target: validation
+    network_mode: none
+  playbook-validation:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.tests
+      target: playbooks
     network_mode: none

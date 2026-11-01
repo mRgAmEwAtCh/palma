@@ -1,3 +1,13 @@
+FROM python:3.14-slim AS ansible
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections
+COPY backend/requirements.txt /tmp/backend-requirements.txt
+RUN grep '^ansible-core==' /tmp/backend-requirements.txt > /tmp/ansible-requirements.txt \
+    && pip install --no-cache-dir -r /tmp/ansible-requirements.txt
+COPY playbooks/requirements.yml /tmp/requirements.yml
+RUN ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections
+
 FROM node:25-alpine AS frontend
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
@@ -5,11 +15,13 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.14-slim
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections
+FROM ansible AS playbooks
+WORKDIR /app/playbooks
+COPY playbooks/ ./
+RUN cp vars/sssd_vars.yml.example vars/sssd_vars.yml
+ENTRYPOINT ["ansible-playbook", "--syntax-check", "-i", "localhost,"]
 
+FROM ansible AS validation
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client \
     && rm -rf /var/lib/apt/lists/*
@@ -17,9 +29,6 @@ RUN apt-get update \
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements-dev.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements-dev.txt
-COPY playbooks/requirements.yml /tmp/requirements.yml
-RUN ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ansible/collections
-
 COPY backend/ ./backend/
 COPY playbooks/ ./playbooks/
 COPY --from=frontend /web/dist ./frontend/dist
