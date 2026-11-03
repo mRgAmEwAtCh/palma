@@ -1,0 +1,63 @@
+name: Dependabot rescan
+
+# Dependabot has no API to start version-update scans, but it re-scans every ecosystem whenever
+# .github/dependabot.yml changes on the default branch. This workflow bumps the "Last manual rescan"
+# timestamp in that file. Pushes made with GITHUB_TOKEN do not start other workflows, so no CI run
+# or image build is triggered by this commit.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Optional note for the commit message
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dependabot-rescan
+  cancel-in-progress: false
+
+jobs:
+  rescan:
+    name: Trigger Dependabot rescan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Update rescan timestamp
+        run: |
+          file=.github/dependabot.yml
+          marker="# Last manual rescan:"
+          grep -q "^${marker}" "$file" || { echo "::error::Marker '${marker}' missing in ${file}"; exit 1; }
+          sed -i "s|^${marker}.*|${marker} $(date -u +%Y-%m-%dT%H:%M:%SZ)|" "$file"
+          git diff --stat
+
+      - name: Commit and push
+        env:
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/dependabot.yml
+          git commit -q -m "chore(deps): trigger Dependabot rescan" \
+                       -m "Requested by @${ACTOR}${REASON:+: ${REASON}}"
+          for attempt in 1 2 3; do
+            git push origin "HEAD:${BRANCH}" && exit 0
+            echo "Push rejected (attempt ${attempt}), rebasing onto latest ${BRANCH}"
+            git pull --rebase -q origin "${BRANCH}"
+          done
+          exit 1
+
+      - name: Summary
+        run: |
+          {
+            echo "### Dependabot rescan requested"
+            echo "Dependabot will check all ecosystems within a few minutes."
+            echo "Progress: [Dependabot jobs](${{ github.server_url }}/${{ github.repository }}/network/updates)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -294,6 +294,10 @@ All settings are environment variables (see `.env.example`): `PUBLIC_URL`, `SESS
 Each PR runs the CI workflow (tests, frontend build, image build). The Ansible collection in
 `playbooks/requirements.yml` is not covered by Dependabot; the tool maintenance check in the app reports its updates.
 
+To force a scan outside the weekly schedule, run the **Dependabot rescan** workflow (Actions → Dependabot rescan →
+Run workflow). Dependabot has no API for this, so the workflow commits an updated timestamp to `.github/dependabot.yml`,
+which makes Dependabot re-scan all ecosystems within a few minutes.
+
 ## License
 
 [MIT](LICENSE) © 2026 Thomas Kuhnke
