@@ -1,7 +1,18 @@
 ---
 # Included by docker_compose_update.yml once per stack (loop_var: project).
+# In check mode only the read-only steps run: the tag check reports what would be updated.
 - name: "{{ project.name }} | update"
+  vars:
+    compose_args: >-
+      {{ compose_cmd }} -p {{ project.name | quote }}
+      {% for f in project.files %}-f {{ f | quote }} {% endfor %}
   block:
+    - name: "{{ project.name }} | reset per-stack state"
+      ansible.builtin.set_fact:
+        tag_report: {updates: [], notes: []}
+        tag_bump: {results: []}
+        compose_up_started: false
+
     - name: "{{ project.name }} | check compose file"
       ansible.builtin.stat:
         path: "{{ project.files[0] }}"
@@ -12,32 +23,104 @@
         msg: "{{ project.files[0] }} not found"
       when: not compose_file.stat.exists
 
+    # ── Pinned image tags in .env ─────────────────────────────────────────────
+    - name: "{{ project.name }} | check pinned image tags"
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/files/compose_tag_check.py
+          {{ {'project': project.name, 'dir': project.dir, 'rules': compose_tag_updates,
+              'allow_override': compose_tag_allow | default('') | string | trim} | to_json | b64encode }}
+        executable: python3
+      register: tag_check
+      changed_when: false
+      check_mode: false
+      when: compose_tag_updates | default([]) | length > 0
+
+    - name: "{{ project.name }} | read tag check result"
+      ansible.builtin.set_fact:
+        tag_report: "{{ tag_check.stdout | from_json }}"
+        compose_tag_notes: >-
+          {{ compose_tag_notes + ((tag_check.stdout | from_json).notes | map('regex_replace', '^', project.name ~ ': ') | list) }}
+      when: tag_check is not skipped
+
+    - name: "{{ project.name }} | raise pinned tags in .env"
+      ansible.builtin.replace:
+        path: "{{ project.dir }}/.env"
+        regexp: '^(\s*(?:export\s+)?{{ item.var }}\s*=\s*["'']?){{ item.current | regex_escape }}(["'']?\s*)$'
+        replace: '\g<1>{{ item.target }}\g<2>'
+        backup: true
+      loop: "{{ tag_report.updates }}"
+      loop_control:
+        label: "{{ item.var }}: {{ item.current }} -> {{ item.target }}"
+      register: tag_bump
+
+    # ── Pull and restart ──────────────────────────────────────────────────────
     - name: "{{ project.name }} | pull"
-      ansible.builtin.shell: >-
-        {{ compose_cmd }} -p {{ project.name | quote }}
-        {% for f in project.files %}-f {{ f | quote }} {% endfor %}
-        pull {{ compose_pull_args }}
+      ansible.builtin.shell: "{{ compose_args }} pull {{ compose_pull_args }}"
       args:
         chdir: "{{ project.dir }}"
       changed_when: false
+      when: not ansible_check_mode
+
+    - name: "{{ project.name }} | mark restart"
+      ansible.builtin.set_fact:
+        compose_up_started: true
+      when: not ansible_check_mode
 
     - name: "{{ project.name }} | up -d"
-      ansible.builtin.shell: >-
-        {{ compose_cmd }} -p {{ project.name | quote }}
-        {% for f in project.files %}-f {{ f | quote }} {% endfor %}
-        up -d {{ '--remove-orphans' if compose_remove_orphans | bool else '' }}
+      ansible.builtin.shell: "{{ compose_args }} up -d {{ '--remove-orphans' if compose_remove_orphans | bool else '' }}"
       args:
         chdir: "{{ project.dir }}"
       register: compose_up
       changed_when: (compose_up.stdout ~ compose_up.stderr) is search('Recreat|Creat|Start')
+      when: not ansible_check_mode
+
+    - name: "{{ project.name }} | wait until containers are healthy"
+      ansible.builtin.shell: >-
+        docker ps --all --filter label=com.docker.compose.project={{ project.name | quote }}
+        --format '{% raw %}{{.Names}}: {{.Status}}{% endraw %}'
+      register: compose_health
+      changed_when: false
+      until: compose_health.stdout is not search('health. starting|unhealthy|Restarting')
+      retries: "{{ (compose_health_timeout | int / 10) | round(0, 'ceil') | int }}"
+      delay: 10
+      when:
+        - not ansible_check_mode
+        - tag_bump.results | select('changed') | list | length > 0
 
     - name: "{{ project.name }} | record result"
+      vars:
+        status: >-
+          {% set ns = namespace(bumps=[]) %}
+          {% for u in tag_report.updates %}{% set ns.bumps = ns.bumps + [u.var ~ ' ' ~ u.current ~ ' -> ' ~ u.target] %}{% endfor %}
+          {% if ns.bumps %}{{ 'would update ' if ansible_check_mode else 'updated ' }}{{ ns.bumps | join(', ') }}
+          {% elif ansible_check_mode %}detected
+          {% elif compose_up is changed %}updated
+          {% else %}unchanged{% endif %}
       ansible.builtin.set_fact:
-        compose_results: "{{ compose_results + [[project.name, 'updated' if compose_up is changed else 'unchanged']] }}"
+        compose_results: "{{ compose_results + [[project.name, status | trim]] }}"
 
   rescue:
+    # Restore .env only if the containers were not restarted yet: once the new version started,
+    # it may have migrated its database, and going back would break the stack.
+    - name: "{{ project.name }} | restore .env after failed pull"
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ item.backup_file }}"
+        dest: "{{ project.dir }}/.env"
+        mode: preserve
+      loop: "{{ tag_bump.results | default([]) | selectattr('backup_file', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.backup_file }}"
+      when: not compose_up_started
+
     - name: "{{ project.name }} | record failure"
+      vars:
+        reason: >-
+          {{ ('not healthy after update: ' ~ (ansible_failed_result.stdout_lines | default([]) | join(', ')))
+             if ansible_failed_task.name is search('wait until containers are healthy')
+             else ((ansible_failed_result.stderr | default('') | trim) or ansible_failed_result.msg | default('error')) }}
+        restored: "{{ not compose_up_started and tag_bump.results | default([]) | selectattr('backup_file', 'defined') | list | length > 0 }}"
       ansible.builtin.set_fact:
         compose_results: >-
-          {{ compose_results + [[project.name, 'failed - ' ~ ((ansible_failed_result.stderr | default('') | trim)
-             or ansible_failed_result.msg | default('error')) | truncate(300)]] }}
+          {{ compose_results + [[project.name, 'failed - ' ~ (reason | truncate(300)) ~ (' (.env restored)' if restored | bool else '')]] }}

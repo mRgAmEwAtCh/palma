@@ -70,7 +70,7 @@ becomes an inventory group, so playbooks should target `hosts: all`.
 | `safe_reboot.yml`     | Graceful reboot request for LXC guests, Proxmox hosts and bare-metal Linux boxes, with Proxmox host protection |
 | `health.yml`          | Docker container state, disk usage, pending updates, reboot flag, failed systemd units; sets the host health labels |
 | `docker_cleanup.yml`  | `docker system prune -a` on hosts with Docker (`prune_volumes=true` to include volumes)         |
-| `docker_compose_update.yml` | Detects Compose stacks via container labels, runs `pull` + `up -d` per stack, then removes the replaced images (`compose_include`/`compose_exclude`, `compose_prune_images=dangling\|all\|none`). Dry run lists the detected stacks |
+| `docker_compose_update.yml` | Detects Compose stacks via container labels, raises image tags pinned in the stack's `.env` (default: `AUTHENTIK_TAG`, patch releases only, see below), runs `pull` + `up -d` per stack, then removes the replaced images (`compose_include`/`compose_exclude`, `compose_prune_images=dangling\|all\|none`). Dry run lists the stacks and pending tag updates |
 | `sssd_ldap.yml`       | Authentik LDAP login via SSSD (Debian/Ubuntu); needs `playbooks/vars/sssd_vars.yml`             |
 
 For `safe_reboot.yml`, set `reboot_requested: true` to reboot even without the reboot-required flag.
@@ -156,6 +156,29 @@ The login mode is chosen automatically:
 3. Optional: set `OIDC_ALLOWED_GROUPS` (comma separated) to restrict access, and/or bind the application to a group in Authentik.
 4. Set `SESSION_SECRET` (`openssl rand -hex 32`). Behind an HTTPS reverse proxy, also set `SESSION_HTTPS_ONLY=true`
    and use the HTTPS URL as `PUBLIC_URL`.
+
+### Pinned image tags (e.g. Authentik)
+
+Stacks that pin their version in `.env` (Authentik: `AUTHENTIK_TAG=2026.8.5`) don't get new releases from `docker compose
+pull`. `docker_compose_update.yml` therefore checks the variables listed in `compose_tag_updates` for every stack whose `.env`
+contains them:
+
+1. finds the images of the stack that use the tag and lists their newer release tags in the registry (ghcr.io, Docker Hub
+   or any v2 registry; pre-releases like `-rc1` are ignored),
+2. writes the newest **allowed** version into `.env` (a backup `.env.<timestamp>~` is kept),
+3. pulls, runs `up -d` and waits up to `compose_health_timeout` seconds until the containers are healthy.
+
+| `allow` | 2026.8.5 may become | |
+|---------|---------------------|---|
+| `patch` (default) | 2026.8.x | bug and security fixes |
+| `minor` | 2026.x.y | feature releases within the year; read the release notes first |
+| `major` | any newer | |
+| `none` | – | only report |
+
+Newer releases beyond `allow` are reported in the run summary; run once with `compose_tag_allow=minor` to apply them.
+If the pull fails, `.env` is restored. If the new version doesn't become healthy, the run fails **without** rollback, because
+the application may already have migrated its database. Add more stacks with e.g.
+`compose_tag_updates=[{"var":"AUTHENTIK_TAG","allow":"patch"},{"var":"IMMICH_VERSION","allow":"patch"}]`.
 
 ### Schedules and health labels
 

@@ -1,7 +1,9 @@
 ---
 # Finds Docker Compose stacks (from container labels) and runs "pull" + "up -d" for each.
 # Works with "docker compose" (v2) and "docker-compose" (v1). Hosts without Docker are skipped.
-# Dry run only lists the detected stacks.
+# Image tags pinned via a variable in the stack's .env (e.g. AUTHENTIK_TAG=2026.8.5) are raised to the newest
+# allowed release first, then the stack waits until its containers are healthy again.
+# Dry run lists the detected stacks and the tag updates that would be applied, without changing anything.
 # Extra vars (comma separated lists):
 #   compose_include=stack1,stack2   only these projects (default: all detected)
 #   compose_exclude=stack3          skip these (default: palma, so the app never restarts itself)
@@ -11,6 +13,12 @@
 #                                   dangling = image versions replaced by the update (default, safe)
 #                                   all      = every image not used by any container (also of stopped stacks!)
 #                                   none     = keep everything
+#   compose_tag_updates=[{"var":"AUTHENTIK_TAG","allow":"patch"}]
+#                                   .env variables holding pinned image tags; allow = patch | minor | major | none
+#                                   (2026.8.5: patch -> 2026.8.x, minor -> 2026.x.y). Stacks without the variable are
+#                                   not affected. Newer releases beyond "allow" are only reported.
+#   compose_tag_allow=              override "allow" for all rules in this run, e.g. minor (empty = use the rules)
+#   compose_health_timeout=600      seconds to wait for healthy containers after a tag update
 
 - name: Update Docker Compose stacks
   hosts: all
@@ -22,6 +30,11 @@
     compose_include_stopped: false
     compose_remove_orphans: false
     compose_prune_images: dangling
+    compose_tag_updates:
+      - var: AUTHENTIK_TAG
+        allow: patch
+    compose_tag_allow: ""
+    compose_health_timeout: 600
 
   tasks:
     - name: Detect compose command
@@ -59,6 +72,7 @@
         compose_cmd: "{{ compose_bin.stdout | trim }}"
         compose_pull_args: "--quiet{{ ' --ignore-buildable' if ignore_buildable.rc == 0 else '' }}"
         compose_results: []
+        compose_tag_notes: []
         compose_projects: |
           {% set inc = (compose_include.split(',') if compose_include is string else compose_include) | map('trim') | select | list %}
           {% set exc = (compose_exclude.split(',') if compose_exclude is string else compose_exclude) | map('trim') | select | list %}
@@ -82,7 +96,6 @@
       loop_control:
         loop_var: project
         label: "{{ project.name }}"
-      when: not ansible_check_mode
 
     - name: Clean up old images
       vars:
@@ -102,9 +115,9 @@
       ansible.builtin.debug:
         msg: >-
           {{ (compose_results | map('join', ': ') | list or ['nothing to do'])
+             + (compose_tag_notes | default([]))
              + ([prune.stdout_lines | select('search', 'reclaimed') | first | default('Image cleanup: nothing removed')]
                 if prune is not skipped and prune.stdout_lines is defined else ['Image cleanup: skipped']) }}
-      when: not ansible_check_mode
 
     - name: Fail if a stack could not be updated
       ansible.builtin.fail:
