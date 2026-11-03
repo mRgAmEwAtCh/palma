@@ -4,7 +4,7 @@
 #
 # Any change to this file makes Dependabot re-scan all ecosystems. The "Dependabot rescan" workflow
 # (Actions tab → Run workflow) uses that to force a scan by updating the timestamp below.
-# Last manual rescan: never
+# Last manual rescan: 2026-11-03T15:30:47Z
 version: 2
 
 updates:
