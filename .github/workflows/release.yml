@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Explicit version (e.g. 1.2.3) — overrides bump
+        required: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag & release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPLICIT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$EXPLICIT" ]]; then
+            version="${EXPLICIT#v}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $EXPLICIT" >&2; exit 1; }
+          else
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            latest="${latest:-v0.0.0}"
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            case "$BUMP" in
+              major) version="$((major + 1)).0.0" ;;
+              minor) version="${major}.$((minor + 1)).0" ;;
+              patch) version="${major}.${minor}.$((patch + 1))" ;;
+            esac
+          fi
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists" >&2; exit 1
+          fi
+          prev=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag (previous: ${prev:-none})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build changelog
+        env:
+          PREV: ${{ steps.version.outputs.prev }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$PREV" ]]; then
+            range="${PREV}..HEAD"
+            echo "## Commits since ${PREV}" > changelog.md
+          else
+            range="HEAD"
+            echo "## Commits" > changelog.md
+          fi
+          echo >> changelog.md
+          git log "$range" --no-merges --pretty=format:'- %s (%h)' >> changelog.md
+          echo >> changelog.md
+          cat changelog.md >> "$GITHUB_STEP_SUMMARY"
+
+      # --notes-file content is prepended to the auto-generated notes
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PREV: ${{ steps.version.outputs.prev }}
+        run: |
+          args=(--target "$GITHUB_SHA" --title "$TAG" --generate-notes --notes-file changelog.md)
+          [[ -n "$PREV" ]] && args+=(--notes-start-tag "$PREV")
+          gh release create "$TAG" "${args[@]}"
+
+      # Tags created with GITHUB_TOKEN don't trigger tag-push workflows,
+      # so start the Docker build for the new tag explicitly.
+      - name: Trigger Docker build for tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run docker.yml --ref "refs/tags/$TAG"
