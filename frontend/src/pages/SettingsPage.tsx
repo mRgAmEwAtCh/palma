@@ -4,6 +4,7 @@ import { api } from '../api'
 import { toast } from '../components/Toast'
 import { ToolVersionsCard } from '../components/ToolVersionsCard'
 import { ThemeCard } from '../components/ThemeCard'
+import { PlaybookSources } from '../components/PlaybookSources'
 import type { Me, SystemInfo, ToolVersions } from '../types'
 
 interface Props {
@@ -72,6 +73,7 @@ export function SettingsPage({ me, versions, onVersions }: Props) {
       <section className="card">
         <div className="card-title">Playbooks</div>
         <p className="muted small">Create, edit and validate the playbooks available on the Run tab.</p>
+        <PlaybookSources />
         <Link className="btn" to="/playbooks">
           Manage playbooks
         </Link>

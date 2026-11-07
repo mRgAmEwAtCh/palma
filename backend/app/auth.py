@@ -2,6 +2,8 @@
 
 import asyncio
 import hmac
+import hashlib
+import secrets
 from typing import Any
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -14,12 +16,6 @@ from .config import get_settings
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-if settings.auth_mode == "local" and not settings.admin_password:
-    raise RuntimeError(
-        "No authentication configured: set OIDC_ISSUER + OIDC_CLIENT_ID for Authentik, "
-        "or ADMIN_PASSWORD for the local login (AUTH_DISABLED=true only for development)"
-    )
-
 oauth = OAuth()
 if settings.auth_mode == "oidc":
     oauth.register(
@@ -31,6 +27,22 @@ if settings.auth_mode == "oidc":
     )
 
 DEV_USER = {"sub": "dev", "name": "Developer", "email": None, "groups": []}
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
+    return f"{salt}:{digest}"
+
+
+def password_matches(password: str) -> bool:
+    if settings.admin_password:
+        return hmac.compare_digest(password.encode(), settings.admin_password.encode())
+    if not settings.admin_password_hash:
+        return False
+    salt, expected = settings.admin_password_hash.split(":")
+    actual = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
+    return hmac.compare_digest(actual, expected)
 
 
 def current_user(request: Request) -> dict[str, Any]:
@@ -49,6 +61,8 @@ def auth_config():
 
 @router.get("/login")
 async def login(request: Request):
+    if settings.needs_account:
+        return RedirectResponse("/")
     if settings.auth_mode == "oidc":
         redirect_uri = settings.public_url.rstrip("/") + "/auth/callback"
         return await oauth.oidc.authorize_redirect(request, redirect_uri)
@@ -67,7 +81,7 @@ async def local_login(body: LocalLogin, request: Request):
     if settings.auth_mode != "local":
         raise HTTPException(status_code=404, detail="Local login is not enabled")
     user_ok = hmac.compare_digest(body.username.encode(), settings.admin_username.encode())
-    pass_ok = hmac.compare_digest(body.password.encode(), settings.admin_password.encode())
+    pass_ok = password_matches(body.password)
     if not (user_ok and pass_ok):
         await asyncio.sleep(1)  # slow down brute force attempts
         raise HTTPException(status_code=401, detail="Invalid username or password")

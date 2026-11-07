@@ -89,7 +89,10 @@ export function SchedulesPage() {
     }
   }
 
-  const title = (path: string) => playbooks.find((p) => p.path === path)?.title ?? path
+  const title = (path: string) => {
+    const playbook = playbooks.find((p) => p.path === path)
+    return playbook ? `${playbook.title} (${playbook.source})` : path
+  }
 
   return (
     <div className="page">

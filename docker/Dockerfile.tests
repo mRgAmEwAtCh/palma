@@ -23,7 +23,7 @@ ENTRYPOINT ["ansible-playbook", "--syntax-check", "-i", "localhost,"]
 
 FROM ansible AS validation
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client \
+    && apt-get install -y --no-install-recommends openssh-client git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

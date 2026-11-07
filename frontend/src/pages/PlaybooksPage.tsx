@@ -18,7 +18,8 @@ export function PlaybooksPage() {
   return (
     <div className="page">
       <p className="muted small">
-        Playbooks live in the <code>playbooks/</code> folder. The first play's <code>name</code> is the title, the
+        Local files and Git sources are merged here. Manage sources in Settings.
+        The first play's <code>name</code> is the title, the
         leading <code>#</code> comment is the description and the play <code>vars:</code> are the defaults shown when
         running.
       </p>
@@ -28,7 +29,7 @@ export function PlaybooksPage() {
           <li key={p.path}>
             <Link to={`/playbooks/edit/${encodeURIComponent(p.path)}`} className="card card-link">
               <div className="card-title">{p.title}</div>
-              <div className="muted small">{p.path}</div>
+              <div className="muted small">{p.source} · {p.path}</div>
               {p.description && <p className="description clamp-2">{p.description}</p>}
             </Link>
           </li>

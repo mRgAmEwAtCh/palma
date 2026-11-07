@@ -40,7 +40,7 @@ export function ScheduleForm({ open, schedule, playbooks, hosts, onClose, onSave
 
   useEffect(() => {
     if (!open) return
-    const pb = schedule?.playbook ?? (playbooks.find((p) => p.path === 'health.yml') ?? playbooks[0])?.path ?? ''
+    const pb = schedule?.playbook ?? (playbooks.find((p) => p.path === 'health.yml' || p.path === 'sources/palma/health.yml') ?? playbooks[0])?.path ?? ''
     const defaults = playbooks.find((p) => p.path === pb)?.vars ?? {}
     setName(schedule?.name ?? 'Health check')
     setPlaybook(pb)
@@ -151,7 +151,7 @@ export function ScheduleForm({ open, schedule, playbooks, hosts, onClose, onSave
           <select value={playbook} onChange={(e) => choosePlaybook(e.target.value)}>
             {playbooks.map((p) => (
               <option key={p.path} value={p.path}>
-                {p.title} ({p.path})
+                {p.title} ({p.source} · {p.path})
               </option>
             ))}
           </select>

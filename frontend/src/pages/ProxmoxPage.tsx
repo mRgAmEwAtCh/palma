@@ -1,25 +1,17 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { api, emptyProxmoxSource } from '../api'
 import { PlusIcon } from '../components/Icons'
 import { KeyDeploySheet } from '../components/KeyDeploySheet'
 import { Sheet } from '../components/Sheet'
 import { toast } from '../components/Toast'
 import type { Discovery, Host, ProxmoxSource, ProxmoxSourceInput } from '../types'
 import { timeAgo } from '../util'
-
-const emptySource: ProxmoxSourceInput = {
-  name: '',
-  url: 'https://',
-  token_id: '',
-  token_secret: '',
-  verify_ssl: false,
-  default_ssh_user: 'root',
-}
+import { ProxmoxGuide, ProxmoxSourceFields } from '../components/ProxmoxSetup'
 
 export function ProxmoxPage() {
   const [sources, setSources] = useState<ProxmoxSource[] | null>(null)
   const [editing, setEditing] = useState<ProxmoxSource | null>(null)
-  const [form, setForm] = useState<ProxmoxSourceInput>(emptySource)
+  const [form, setForm] = useState<ProxmoxSourceInput>(emptyProxmoxSource)
   const [formOpen, setFormOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -36,7 +28,7 @@ export function ProxmoxPage() {
 
   function openForm(s: ProxmoxSource | null) {
     setEditing(s)
-    setForm(s ? { ...s, token_secret: '' } : emptySource)
+    setForm(s ? { ...s, token_secret: '' } : emptyProxmoxSource)
     setFormOpen(true)
   }
 
@@ -112,18 +104,13 @@ export function ProxmoxPage() {
       return n
     })
 
-  const set = <K extends keyof ProxmoxSourceInput>(k: K, v: ProxmoxSourceInput[K]) =>
-    setForm((f) => ({ ...f, [k]: v }))
-
   if (!sources) return <div className="empty">Loading…</div>
 
   return (
     <div className="page">
       {sources.length === 0 && (
         <div className="empty">
-          Add your Proxmox nodes to import LXC containers and VMs as hosts. Create an API token (Datacenter → Permissions → API
-          Tokens) and grant it the <b>PVEAuditor</b> role on path <code>/</code> (Permissions → Add → API Token
-          Permission). One source per cluster is enough.
+          Add your Proxmox nodes to import LXC containers and VMs as hosts. One source per cluster is enough.
         </div>
       )}
       <ul className="list">
@@ -173,50 +160,8 @@ export function ProxmoxPage() {
         }
       >
         <div className="form">
-          <label>
-            Name
-            <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="pve1" autoCapitalize="off" />
-          </label>
-          <label>
-            API URL
-            <input
-              value={form.url}
-              onChange={(e) => set('url', e.target.value)}
-              placeholder="https://192.168.1.2:8006"
-              inputMode="url"
-              autoCapitalize="off"
-            />
-          </label>
-          <label>
-            Token ID
-            <input
-              value={form.token_id}
-              onChange={(e) => set('token_id', e.target.value)}
-              placeholder="root@pam!homelab"
-              autoCapitalize="off"
-            />
-          </label>
-          <label>
-            Token secret {editing && <span className="muted">(leave empty to keep)</span>}
-            <input
-              type="password"
-              value={form.token_secret ?? ''}
-              onChange={(e) => set('token_secret', e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            Default SSH user for imported hosts
-            <input
-              value={form.default_ssh_user}
-              onChange={(e) => set('default_ssh_user', e.target.value)}
-              autoCapitalize="off"
-            />
-          </label>
-          <label className="switch">
-            <input type="checkbox" checked={form.verify_ssl} onChange={(e) => set('verify_ssl', e.target.checked)} />
-            <span>Verify TLS certificate</span>
-          </label>
+          <ProxmoxGuide />
+          <ProxmoxSourceFields value={form} onChange={setForm} editing={editing !== null} />
         </div>
       </Sheet>
 

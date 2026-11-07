@@ -9,6 +9,23 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class SetupState(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    completed: bool = False
+    repository_url: str = ""
+    repository_ref: str = ""
+    repository_path: str = ""
+
+
+class PlaybookRepository(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    url: str
+    ref: str = ""
+    path: str = "playbooks"
+    folder: str = ""
+
+
 class ProxmoxSourceBase(SQLModel):
     name: str = Field(index=True, unique=True)
     url: str  # e.g. https://pve1.lan:8006

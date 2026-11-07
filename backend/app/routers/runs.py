@@ -29,14 +29,17 @@ def create_run(body: RunCreate, user: dict = Depends(current_user), s: Session =
     hosts = s.exec(select(Host).where(col(Host.id).in_(body.host_ids))).all()
     if len(hosts) != len(set(body.host_ids)):
         raise HTTPException(400, "Some selected hosts do not exist")
-    run = runner.create_and_start(
-        s,
-        body.playbook,
-        list(hosts),
-        check_mode=body.check_mode,
-        extra_vars=body.extra_vars,
-        triggered_by=user.get("name") or user.get("sub"),
-    )
+    try:
+        run = runner.create_and_start(
+            s,
+            body.playbook,
+            list(hosts),
+            check_mode=body.check_mode,
+            extra_vars=body.extra_vars,
+            triggered_by=user.get("name") or user.get("sub"),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(409, "Playbook changed while starting the run; refresh the catalog") from exc
     return run
 
 
