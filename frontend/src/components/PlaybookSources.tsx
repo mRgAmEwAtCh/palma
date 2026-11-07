@@ -61,7 +61,7 @@ export function PlaybookSources({ defaultRepository, onBusy }: { defaultReposito
   }
 
   return (
-    <section className="form">
+    <section className="form setup-copy">
       <h2>Playbook sources</h2>
       <p className="muted small">
         All sources are merged into one catalog. Duplicate filenames are kept separately and labeled by source.

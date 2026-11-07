@@ -12,6 +12,7 @@ from app.db import get_session
 from app.main import app
 from app.models import Host, PlaybookRepository, ProxmoxSource, Run, Schedule, SetupState
 from app import repositories, runner
+from app import auth
 from app.proxmox import ProxmoxError
 from app.routers import proxmox, setup
 
@@ -30,6 +31,9 @@ def setup_client(tmp_path, monkeypatch):
         "auth_disabled": False,
         "oidc_issuer": "",
         "oidc_client_id": "",
+        "oidc_client_secret": "",
+        "oidc_allowed_groups": "",
+        "public_url": "http://testserver",
         "admin_password": "",
         "admin_password_hash": "",
     }.items():
@@ -547,3 +551,135 @@ def test_local_source_symlinks_are_not_listed_or_editable(setup_client):
     assert client.put("/api/playbooks/file", json={
         "name": "sources/linked/ping.yml", "content": "- hosts: all\n",
     }).status_code == 400
+
+
+OIDC_INPUT = {
+    "issuer": "https://auth.example.com/application/o/palma/",
+    "client_id": "test-client", "client_secret": "test-client-secret",
+    "public_url": "http://testserver", "allowed_groups": "admins",
+}
+
+
+def test_oidc_setup_stages_then_activates_after_login(setup_client, monkeypatch):
+    client, settings, _ = setup_client
+    callbacks = []
+
+    class OIDCClient:
+        async def authorize_redirect(self, request, redirect_uri):
+            from fastapi.responses import RedirectResponse
+            callbacks.append(redirect_uri)
+            return RedirectResponse("https://auth.example.com/authorize")
+
+        async def authorize_access_token(self, request):
+            return {"userinfo": {"sub": "oidc-user", "name": "OIDC Admin", "groups": ["admins"]}}
+
+    registered = []
+
+    def register(**kwargs):
+        registered.append(kwargs)
+        return OIDCClient()
+
+    monkeypatch.setattr(auth.oauth, "register", register)
+    monkeypatch.setattr(auth, "OAuth", lambda: auth.oauth)
+    assert client.post("/setup/oidc", json=OIDC_INPUT).status_code == 201
+    assert settings.needs_account
+    assert client.get("/api/hosts").status_code == 401
+    assert not (settings.data_dir / "oidc.json").exists()
+    pending = settings.data_dir / "oidc-pending.json"
+    assert pending.stat().st_mode & 0o777 == 0o600
+    assert OIDC_INPUT["client_secret"] not in client.get("/setup/status").text
+    assert OIDC_INPUT["client_secret"] not in str(client.cookies)
+    response = client.get("/auth/setup-login", follow_redirects=False)
+    assert response.status_code == 307
+    assert callbacks == ["http://testserver/auth/setup-callback"]
+    assert registered[-1]["server_metadata_url"] == "https://auth.example.com/application/o/palma/.well-known/openid-configuration"
+    response = client.get("/auth/setup-callback", follow_redirects=False)
+    assert response.status_code == 307 and response.headers["location"] == "/"
+    assert settings.auth_mode == "oidc"
+    assert not settings.needs_account
+    assert client.get("/api/me").json()["name"] == "OIDC Admin"
+    assert not pending.exists()
+    assert not (settings.data_dir / "admin.json").exists()
+    assert (settings.data_dir / "oidc.json").stat().st_mode & 0o777 == 0o600
+    assert client.post("/setup/oidc", json=OIDC_INPUT).status_code == 409
+    assert client.post("/setup/account", json={"password": "a-long-test-password"}).status_code == 409
+    monkeypatch.setenv("DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("OIDC_ISSUER", "")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "")
+    monkeypatch.setenv("ADMIN_PASSWORD", "")
+    monkeypatch.setenv("AUTH_DISABLED", "false")
+    reloaded = get_settings.__wrapped__()
+    assert reloaded.auth_mode == "oidc"
+    assert reloaded.oidc_client_secret == OIDC_INPUT["client_secret"]
+    assert reloaded.public_url == "http://testserver"
+    monkeypatch.setenv("OIDC_ISSUER", "https://environment.example.com")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "env-client")
+    assert get_settings.__wrapped__().oidc_client_id == "env-client"
+
+
+def test_failed_oidc_login_allows_owner_to_retry_or_choose_local(setup_client, monkeypatch):
+    client, settings, _ = setup_client
+
+    class OIDCClient:
+        async def authorize_access_token(self, request):
+            return {"userinfo": {"sub": "wrong-group", "groups": ["other"]}}
+
+    monkeypatch.setattr(auth.oauth, "register", lambda **kwargs: OIDCClient())
+    monkeypatch.setattr(auth, "OAuth", lambda: auth.oauth)
+    assert client.post("/setup/oidc", json=OIDC_INPUT).status_code == 201
+    assert client.get("/auth/setup-callback").status_code == 403
+    assert settings.needs_account
+    assert not (settings.data_dir / "oidc.json").exists()
+    assert client.post("/setup/oidc", json={**OIDC_INPUT, "allowed_groups": ""}).status_code == 201
+    other = TestClient(app)
+    assert other.post("/setup/oidc", json=OIDC_INPUT).status_code == 403
+    assert other.get("/auth/setup-login").status_code == 403
+    assert other.post("/setup/account", json={"password": "a-long-test-password"}).status_code == 403
+    claim(client)
+    assert not (settings.data_dir / "oidc-pending.json").exists()
+    assert settings.auth_mode == "local"
+
+
+@pytest.mark.parametrize("change", [
+    {"issuer": "http://auth.example.com"}, {"issuer": "https://auth.example.com?secret=x"},
+    {"client_id": ""}, {"client_secret": ""}, {"public_url": "file:///invalid"},
+])
+def test_oidc_setup_rejects_invalid_config(setup_client, change):
+    client, settings, _ = setup_client
+    assert client.post("/setup/oidc", json={**OIDC_INPUT, **change}).status_code == 422
+    assert not (settings.data_dir / "oidc-pending.json").exists()
+
+
+def test_oidc_setup_rejects_cross_origin_and_existing_auth(setup_client, monkeypatch):
+    client, settings, _ = setup_client
+    assert client.post("/setup/oidc", json=OIDC_INPUT, headers={"Origin": "https://other.example"}).status_code == 403
+    assert client.post("/setup/oidc", json={**OIDC_INPUT, "public_url": "https://different.example"}).status_code == 400
+    monkeypatch.setattr(settings, "admin_password", "existing-password")
+    assert client.post("/setup/oidc", json=OIDC_INPUT).status_code == 409
+
+
+def test_oidc_setup_client_reconfiguration_does_not_reuse_cached_credentials():
+    from app.config import OIDCSettings
+
+    first = auth.register_oidc(OIDCSettings(**OIDC_INPUT))
+    second = auth.register_oidc(OIDCSettings(**{**OIDC_INPUT, "client_id": "replacement-client"}))
+    assert first.client_id == "test-client"
+    assert second.client_id == "replacement-client"
+
+
+def test_oidc_provider_error_keeps_setup_pending(setup_client, monkeypatch):
+    client, settings, _ = setup_client
+
+    class OIDCClient:
+        async def authorize_access_token(self, request):
+            from authlib.integrations.starlette_client import OAuthError
+            raise OAuthError(error="access_denied")
+
+    monkeypatch.setattr(auth, "OAuth", lambda: auth.oauth)
+    monkeypatch.setattr(auth.oauth, "register", lambda **kwargs: OIDCClient())
+    assert client.post("/setup/oidc", json=OIDC_INPUT).status_code == 201
+    response = client.get("/auth/setup-callback")
+    assert response.status_code == 401
+    assert settings.needs_account
+    assert (settings.data_dir / "oidc-pending.json").exists()
+    assert not (settings.data_dir / "oidc.json").exists()

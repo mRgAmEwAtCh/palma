@@ -1,10 +1,14 @@
 import type { ProxmoxSourceInput } from '../types'
+import { ChevronDownIcon } from './Icons'
 
 export function ProxmoxGuide({ open = false }: { open?: boolean }) {
   return (
-    <details open={open}>
-      <summary>Step-by-step Proxmox requirements</summary>
-      <ol className="small">
+    <details className="card collapsible-card setup-copy" open={open}>
+      <summary className="card-title">
+        <span>Step-by-step Proxmox requirements</span>
+        <ChevronDownIcon className="collapse-chevron" width={20} height={20} />
+      </summary>
+      <ol className="small collapsible-content">
         <li>Open the Proxmox web UI as an administrator. Under Datacenter → Permissions → Users, add a dedicated user such as <code>palma@pve</code>.</li>
         <li>Under Permissions → Add → User Permission, select path <code>/</code>, that user, role <b>PVEAuditor</b> and enable Propagate.</li>
         <li>Under Permissions → API Tokens, add a token for that user (for example <code>palma</code>). Keep Privilege Separation enabled. Copy the secret now; Proxmox only displays it once.</li>

@@ -4,27 +4,111 @@ import asyncio
 import hmac
 import hashlib
 import secrets
+import json
+import logging
+from threading import Lock
 from typing import Any
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
+import httpx2
 
-from .config import get_settings
+from .config import OIDCSettings, apply_oidc, get_settings
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 oauth = OAuth()
-if settings.auth_mode == "oidc":
-    oauth.register(
-        name="oidc",
-        server_metadata_url=settings.oidc_issuer.rstrip("/") + "/.well-known/openid-configuration",
-        client_id=settings.oidc_client_id,
-        client_secret=settings.oidc_client_secret,
+setup_lock = Lock()
+log = logging.getLogger(__name__)
+
+
+def register_oidc(config: OIDCSettings | None = None):
+    registry = OAuth() if config else oauth
+    return registry.register(
+        name="setup_oidc" if config else "oidc",
+        overwrite=True,
+        server_metadata_url=(
+            str(config.issuer).rstrip("/") if config else settings.oidc_issuer.rstrip("/")
+        ) + "/.well-known/openid-configuration",
+        client_id=config.client_id if config else settings.oidc_client_id,
+        client_secret=config.client_secret if config else settings.oidc_client_secret,
         client_kwargs={"scope": settings.oidc_scopes},
     )
+
+
+if settings.auth_mode == "oidc":
+    register_oidc()
+
+
+def pending_oidc(request: Request) -> OIDCSettings:
+    path = settings.data_dir / "oidc-pending.json"
+    if not settings.needs_account or not path.exists():
+        raise HTTPException(409, "OIDC setup is not pending")
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    if not hmac.compare_digest(request.session.get("oidc_setup_claim", ""), stored["claim"]):
+        raise HTTPException(403, "Continue OIDC setup in the browser that configured it")
+    return OIDCSettings.model_validate(stored["config"])
+
+
+@router.get("/setup-login")
+async def setup_login(request: Request):
+    config = pending_oidc(request)
+    client = register_oidc(config)
+    try:
+        return await client.authorize_redirect(request, str(config.public_url).rstrip("/") + "/auth/setup-callback")
+    except httpx2.HTTPError as exc:
+        log.exception("OIDC setup provider discovery failed")
+        raise HTTPException(502, "Cannot reach OIDC provider; return to setup and check issuer, TLS and connectivity") from exc
+
+
+@router.get("/setup-callback")
+async def setup_callback(request: Request):
+    config = pending_oidc(request)
+    client = register_oidc(config)
+    try:
+        token = await client.authorize_access_token(request)
+        info = token.get("userinfo") or await client.userinfo(token=token)
+    except OAuthError as exc:
+        raise HTTPException(401, f"OIDC error: {exc.error}; return to setup to retry or choose local login") from exc
+    except httpx2.HTTPError as exc:
+        log.exception("OIDC setup token exchange failed")
+        raise HTTPException(502, "OIDC sign-in failed; return to setup and check provider connectivity and client credentials") from exc
+    allowed = {g.strip() for g in config.allowed_groups.split(",") if g.strip()}
+    groups = info.get("groups") or []
+    if not info.get("sub"):
+        raise HTTPException(401, "OIDC provider did not return a user subject")
+    if allowed and not allowed.intersection(groups):
+        raise HTTPException(403, "You are not a member of an allowed group; return to setup to adjust it")
+    with setup_lock:
+        if pending_oidc(request) != config:
+            raise HTTPException(409, "OIDC configuration changed during sign-in; retry with the current configuration")
+        path = settings.data_dir / "oidc.json"
+        temporary = settings.data_dir / "oidc-verified.tmp"
+        try:
+            if path.exists():
+                raise HTTPException(409, "OIDC is already configured")
+            with temporary.open("w", encoding="utf-8") as f:
+                temporary.chmod(0o600)
+                f.write(config.model_dump_json())
+            temporary.replace(path)
+        except OSError as exc:
+            log.exception("Persisting verified OIDC configuration failed")
+            raise HTTPException(500, "Cannot save OIDC settings; check server logs and data-directory permissions") from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+        apply_oidc(settings, config)
+        register_oidc()
+        (settings.data_dir / "oidc-pending.json").unlink()
+    request.session.clear()
+    request.session["user"] = {
+        "sub": info["sub"], "name": info.get("name") or info.get("preferred_username") or info["sub"],
+        "email": info.get("email"), "groups": groups,
+    }
+    return RedirectResponse("/")
+
 
 DEV_USER = {"sub": "dev", "name": "Developer", "email": None, "groups": []}
 

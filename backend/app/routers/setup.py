@@ -4,15 +4,14 @@ import json
 import logging
 from pathlib import Path
 import subprocess
-from threading import Lock
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from ..auth import current_user, hash_password
-from ..config import get_settings
+from ..auth import current_user, hash_password, pending_oidc, setup_lock
+from ..config import OIDCSettings, get_settings
 from ..db import get_session
 from ..keydeploy import controller_public_key
 from ..models import SetupState
@@ -21,7 +20,7 @@ from ..repositories import DEFAULT_REPOSITORY, RepositoryInput, add_repository, 
 
 settings = get_settings()
 log = logging.getLogger(__name__)
-lock = Lock()
+lock = setup_lock
 router = APIRouter(prefix="/setup", tags=["setup"])
 protected = [Depends(current_user)]
 
@@ -45,15 +44,47 @@ class AccountInput(BaseModel):
     password: str = Field(min_length=12, max_length=256)
 
 
+def check_setup_origin(request: Request) -> None:
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != request.headers.get("host"):
+        raise HTTPException(403, "Setup must be opened from this server")
+
+
+def check_pending_owner(request: Request) -> None:
+    if (settings.data_dir / "oidc-pending.json").exists():
+        pending_oidc(request)
+
+
+@router.post("/oidc", status_code=201)
+def configure_oidc(body: OIDCSettings, request: Request):
+    import secrets
+
+    with lock:
+        if not settings.needs_account:
+            raise HTTPException(409, "Authentication is already configured")
+        check_setup_origin(request)
+        check_pending_owner(request)
+        if urlsplit(str(body.public_url)).netloc != request.headers.get("host"):
+            raise HTTPException(400, "Open the wizard at the public Palma URL before configuring OIDC so session cookies survive sign-in")
+        claim = request.session.get("oidc_setup_claim") or secrets.token_urlsafe(32)
+        path = settings.data_dir / "oidc-pending.json"
+        temporary = path.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as f:
+            temporary.chmod(0o600)
+            json.dump({"claim": claim, "config": body.model_dump(mode="json")}, f)
+        temporary.replace(path)
+        request.session["oidc_setup_claim"] = claim
+    return {"login_url": "/auth/setup-login"}
+
+
 @router.post("/account", status_code=201)
 def create_account(body: AccountInput, request: Request):
     with lock:
         if not settings.needs_account:
             raise HTTPException(409, "Authentication is already configured")
         # JSON-only requests and an Origin check prevent cross-site first-run claims.
-        origin = request.headers.get("origin")
-        if origin and urlsplit(origin).netloc != request.headers.get("host"):
-            raise HTTPException(403, "Setup must be opened from this server")
+        check_setup_origin(request)
+        check_pending_owner(request)
         password_hash = hash_password(body.password)
         path = settings.data_dir / "admin.json"
         try:
@@ -64,6 +95,7 @@ def create_account(body: AccountInput, request: Request):
             raise HTTPException(409, "An administrator account already exists") from exc
         settings.admin_username = body.username
         settings.admin_password_hash = password_hash
+        (settings.data_dir / "oidc-pending.json").unlink(missing_ok=True)
         request.session.clear()
         request.session["user"] = {
             "sub": f"local:{body.username}", "name": body.username, "email": None, "groups": [],

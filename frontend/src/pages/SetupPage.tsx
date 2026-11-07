@@ -3,13 +3,18 @@ import { api, emptyProxmoxSource } from '../api'
 import { ProxmoxGuide, ProxmoxSourceFields } from '../components/ProxmoxSetup'
 import { toast } from '../components/Toast'
 import { PlaybookSources } from '../components/PlaybookSources'
-import type { ProxmoxSourceInput, SetupStatus } from '../types'
+import { ChevronDownIcon } from '../components/Icons'
+import type { OIDCSetupInput, ProxmoxSourceInput, SetupStatus } from '../types'
 
 export function SetupPage({ status }: { status: SetupStatus }) {
   const [step, setStep] = useState(status.needs_account ? 0 : 1)
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [authOption, setAuthOption] = useState<'local' | 'oidc'>('local')
+  const [oidc, setOIDC] = useState<OIDCSetupInput>({
+    issuer: '', client_id: '', client_secret: '', public_url: window.location.origin, allowed_groups: '',
+  })
   const [publicKey, setPublicKey] = useState<string | null>(null)
   const [source, setSource] = useState<ProxmoxSourceInput>(emptyProxmoxSource)
   const [sourceSaved, setSourceSaved] = useState(false)
@@ -41,6 +46,11 @@ export function SetupPage({ status }: { status: SetupStatus }) {
     setError(null)
     try {
       if (step === 0) {
+        if (authOption === 'oidc') {
+          const result = await api.setupOIDC(oidc)
+          window.location.assign(result.login_url)
+          return
+        }
         if (password !== confirmation) throw new Error('Passwords do not match')
         await api.setupAccount(username, password)
         setPassword('')
@@ -95,17 +105,47 @@ export function SetupPage({ status }: { status: SetupStatus }) {
         <div className="brand"><img src="/icon.svg" alt="" /><span className="brand-name">Palma</span><h1>First-run setup</h1></div>
       </header>
       <main>
-        <form className="card form" onSubmit={submit}>
-          <h2>{['Create administrator account', '1. Controller SSH key', '2. Playbook sources', '3. Proxmox API (optional)'][step]}</h2>
+        <form className="card form setup-copy" onSubmit={submit}>
+          <h2>{['Set up authentication', '1. Controller SSH key', '2. Playbook sources', '3. Proxmox API (optional)'][step]}</h2>
           <p className="muted small">Configuration, keys and playbooks are saved in persistent host directories and survive container recreation.</p>
           {error && <div role="alert" className="alert alert-error">{error}</div>}
           <fieldset disabled={busy || !ready} className="setup-fields form">
             {step === 0 && (
               <>
-                <p>Create the local login before configuring Palma. There is no default password.</p>
-                <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} pattern="[a-zA-Z0-9_.\-]+" maxLength={64} autoComplete="username" autoCapitalize="off" required /></label>
-                <label>Password (at least 12 characters)<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} maxLength={256} autoComplete="new-password" required /></label>
-                <label>Confirm password<input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" required /></label>
+                <label>
+                  Login method
+                  <span className="setup-select">
+                    <select value={authOption} onChange={(e) => setAuthOption(e.target.value === 'oidc' ? 'oidc' : 'local')}>
+                      <option value="local">Local administrator account</option>
+                      <option value="oidc">OIDC / Authentik</option>
+                    </select>
+                    <ChevronDownIcon width={20} height={20} />
+                  </span>
+                </label>
+                {authOption === 'local' ? (
+                  <>
+                    <p>Create the local login before configuring Palma. There is no default password.</p>
+                    <label>Username<input value={username} onChange={(e) => setUsername(e.target.value)} pattern="[a-zA-Z0-9_.\-]+" maxLength={64} autoComplete="username" autoCapitalize="off" required /></label>
+                    <label>Password (at least 12 characters)<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} maxLength={256} autoComplete="new-password" required /></label>
+                    <label>Confirm password<input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password" required /></label>
+                  </>
+                ) : (
+                  <>
+                    <p>Use an existing OpenID Connect provider instead of creating a local password. Settings are activated only after a successful sign-in.</p>
+                    <ol className="small">
+                      <li>In Authentik, create an Application with an OAuth2/OpenID provider. Choose a confidential client with scopes <code>openid email profile</code>.</li>
+                      <li>Register the exact setup redirect URI <code>{oidc.public_url.replace(/\/$/, '')}/auth/setup-callback</code> and normal login URI <code>{oidc.public_url.replace(/\/$/, '')}/auth/callback</code>.</li>
+                      <li>Copy the issuer URL, client ID and client secret below. Use the issuer, not the discovery-document URL. Both the browser and Palma must be able to reach the provider.</li>
+                      <li>Restrict access through provider application policies or optional allowed groups. For groups, the provider must include a <code>groups</code> claim.</li>
+                    </ol>
+                    <label>Public Palma URL<input type="url" value={oidc.public_url} onChange={(e) => setOIDC((f) => ({ ...f, public_url: e.target.value }))} autoCapitalize="off" required /></label>
+                    <label>OIDC issuer (HTTPS)<input type="url" value={oidc.issuer} onChange={(e) => setOIDC((f) => ({ ...f, issuer: e.target.value }))} placeholder="https://auth.example.com/application/o/palma/" autoCapitalize="off" required /></label>
+                    <label>Client ID<input value={oidc.client_id} onChange={(e) => setOIDC((f) => ({ ...f, client_id: e.target.value }))} autoCapitalize="off" required /></label>
+                    <label>Client secret<input type="password" value={oidc.client_secret} onChange={(e) => setOIDC((f) => ({ ...f, client_secret: e.target.value }))} autoComplete="off" required /></label>
+                    <label>Allowed groups (optional, comma separated)<input value={oidc.allowed_groups} onChange={(e) => setOIDC((f) => ({ ...f, allowed_groups: e.target.value }))} autoCapitalize="off" /></label>
+                    <p className="muted small">Use the same public URL throughout setup so cookies survive the redirect. If sign-in fails, return here in this browser to adjust the configuration or select local login. For HTTPS deployments set SESSION_HTTPS_ONLY=true in Compose. No local fallback account is created by this option.</p>
+                  </>
+                )}
               </>
             )}
             {step === 1 && (
@@ -134,10 +174,10 @@ export function SetupPage({ status }: { status: SetupStatus }) {
                 {warning && <div role="status" className="alert">{warning}</div>}
               </>
             )}
-            <div className="row gap-s">
+            <div className="row gap-s setup-actions">
               {step > 1 && <button type="button" className="btn" disabled={importing} onClick={() => setStep(step - 1)}>Back</button>}
               <button className="btn btn-primary grow" type="submit" disabled={importing}>
-                {busy ? 'Saving...' : step === 0 ? 'Create account' : step === 1 ? publicKey ? 'Keep key and continue' : 'Generate keypair' : step === 2 ? 'Use all sources and continue' : sourceSaved ? 'Finish setup' : 'Test and save Proxmox'}
+                {busy ? 'Saving...' : step === 0 ? authOption === 'oidc' ? 'Configure OIDC and sign in' : 'Create account' : step === 1 ? publicKey ? 'Keep key and continue' : 'Generate keypair' : step === 2 ? 'Use all sources and continue' : sourceSaved ? 'Finish setup' : 'Test and save Proxmox'}
               </button>
               {step === 3 && !sourceSaved && <button type="button" className="btn" onClick={skip}>Skip and finish</button>}
             </div>

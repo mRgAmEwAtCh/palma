@@ -148,8 +148,13 @@ permissions. Existing playbooks are never overwritten; after initialization, del
 cause them to be restored automatically.
 Open `http://<docker-host>:8080` to start the wizard:
 
-1. **Administrator**: when authentication is not already configured, create a local account with a password
-   of at least 12 characters. The password is stored as a salted scrypt hash, not plaintext.
+1. **Authentication**: choose a local administrator account (password of at least 12 characters, stored as a
+   salted scrypt hash) or **OIDC / Authentik**. The OIDC option provides provider instructions and fields for
+   issuer, client ID/secret, public URL and optional allowed groups. Register both
+   `<PUBLIC_URL>/auth/setup-callback` and `<PUBLIC_URL>/auth/callback` with the provider.
+   Successful OIDC sign-in activates the configuration and resumes the SSH step; no local password is required.
+   Failed sign-in leaves configuration pending so the same browser can retry or choose local login.
+   Use the same public URL throughout setup and an HTTPS issuer.
 2. **SSH keypair**: generate an Ed25519 controller key inside the container, or reuse a supplied unencrypted
    private key. Copy the public key and install it on managed hosts, or use **Install SSH key** after adding hosts.
 3. **Playbook sources**: defaults to `https://github.com/mrgamewatch/palma.git`, using the starter files
@@ -166,6 +171,11 @@ instances open the normal UI. Data (including account and generated session secr
 live in bind-mounted `./data`, `./playbooks` and `./ssh` directories.
 Recreating the container or running `docker compose down -v` preserves these host directories.
 Back up these directories: they include private keys and Proxmox token secrets.
+Wizard OIDC settings (including client secret) are stored in `./data/oidc.json` with owner-only permissions,
+not in browser cookies or public API responses. Complete environment OIDC settings take precedence.
+Pending OIDC configuration is in `./data/oidc-pending.json` and reserved to the configuring browser.
+If that browser session is lost before activation, stop Palma, remove only `oidc-pending.json`, and restart
+to retry authentication setup. Do not delete the data directory.
 
 **Claim a fresh instance on a trusted network before exposing it publicly.** The first visitor can create the
 administrator. Use an HTTPS reverse proxy for remote access. For optional configuration, put environment

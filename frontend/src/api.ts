@@ -20,6 +20,7 @@ import type {
   SetupDetails,
   RepositoryInput,
   PlaybookSource,
+  OIDCSetupInput,
 } from './types'
 
 export class ApiError extends Error {
@@ -76,6 +77,7 @@ export const api = {
   setupStatus: () => request<SetupStatus>('GET', '/setup/status'),
   setupAccount: (username: string, password: string) =>
     request<{ ok: boolean }>('POST', '/setup/account', { username, password }),
+  setupOIDC: (body: OIDCSetupInput) => request<{ login_url: string }>('POST', '/setup/oidc', body),
   setupDetails: () => request<SetupDetails>('GET', '/setup/details'),
   setupKey: () => request<{ ssh_public_key: string }>('POST', '/setup/ssh-key'),
   setupRepository: (body: RepositoryInput) =>
