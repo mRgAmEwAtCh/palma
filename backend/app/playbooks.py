@@ -1,6 +1,7 @@
 """Discovers playbooks in the playbooks directory and extracts a title/description."""
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ import yaml
 from .config import get_settings
 
 EXCLUDED = {"requirements.yml", "requirements.yaml"}
+SOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 @dataclass
@@ -18,6 +20,7 @@ class PlaybookInfo:
     title: str
     description: str
     vars: dict[str, Any] = field(default_factory=dict)
+    source: str = "local"
 
     def dict(self) -> dict:
         return asdict(self)
@@ -62,25 +65,42 @@ def _parse(path: Path, root: Path) -> PlaybookInfo | None:
         return None
     title = data[0].get("name") or path.stem
     return PlaybookInfo(
-        path=str(path.relative_to(root)),
+        path=path.relative_to(root).as_posix(),
         title=title,
         description=_leading_comment(text),
         vars=_default_vars(data[0]),
     )
 
 
-def list_playbooks() -> list[PlaybookInfo]:
-    root = get_settings().playbooks_dir.resolve()
+def list_playbooks(root: Path | None = None) -> list[PlaybookInfo]:
+    catalog = root is None
+    root = (root if root is not None else get_settings().playbooks_dir).resolve()
     if not root.is_dir():
         return []
     found = []
-    for path in sorted([*root.glob("*.yml"), *root.glob("*.yaml")]):
-        if path.name in EXCLUDED or path.name.startswith("."):
-            continue
-        info = _parse(path, root)
-        if info:
-            found.append(info)
+    folders = [("local", root)]
+    if catalog:
+        folders.extend(source_folders(root))
+    for label, folder in folders:
+        for path in sorted([*folder.glob("*.yml"), *folder.glob("*.yaml")]):
+            if path.name in EXCLUDED or path.name.startswith(".") or path.is_symlink():
+                continue
+            info = _parse(path, root)
+            if info:
+                info.source = label
+                found.append(info)
     return found
+
+
+def source_folders(root: Path | None = None) -> list[tuple[str, Path]]:
+    root = root if root is not None else get_settings().playbooks_dir.resolve()
+    sources = root / "sources"
+    if not sources.is_dir() or sources.is_symlink():
+        return []
+    return [
+        (folder.name, folder) for folder in sorted(sources.iterdir())
+        if SOURCE_NAME_RE.fullmatch(folder.name) and folder.is_dir() and not folder.is_symlink()
+    ]
 
 
 def resolve_playbook(rel_path: str) -> Path:

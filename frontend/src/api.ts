@@ -16,6 +16,10 @@ import type {
   ToolVersions,
   ThemeCatalog,
   ThemeSettings,
+  SetupStatus,
+  SetupDetails,
+  RepositoryInput,
+  PlaybookSource,
 } from './types'
 
 export class ApiError extends Error {
@@ -26,6 +30,15 @@ export class ApiError extends Error {
     this.status = status
     this.detail = detail
   }
+}
+
+export const emptyProxmoxSource: ProxmoxSourceInput = {
+  name: '',
+  url: 'https://',
+  token_id: '',
+  token_secret: '',
+  verify_ssl: false,
+  default_ssh_user: 'root',
 }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -60,6 +73,14 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
+  setupStatus: () => request<SetupStatus>('GET', '/setup/status'),
+  setupAccount: (username: string, password: string) =>
+    request<{ ok: boolean }>('POST', '/setup/account', { username, password }),
+  setupDetails: () => request<SetupDetails>('GET', '/setup/details'),
+  setupKey: () => request<{ ssh_public_key: string }>('POST', '/setup/ssh-key'),
+  setupRepository: (body: RepositoryInput) =>
+    request<Pick<SetupDetails, 'repository_url' | 'repository_ref' | 'repository_path'>>('POST', '/setup/repository', body),
+  completeSetup: () => request<{ ok: boolean }>('POST', '/setup/complete'),
   theme: () => request<ThemeCatalog>('GET', '/api/theme'),
   saveTheme: (theme: ThemeSettings) => request<ThemeSettings>('PUT', '/api/theme', theme),
   resetTheme: () => request<ThemeSettings>('DELETE', '/api/theme'),
@@ -75,6 +96,11 @@ export const api = {
   deleteHost: (id: number) => request<void>('DELETE', `/api/hosts/${id}`),
 
   playbooks: () => request<Playbook[]>('GET', '/api/playbooks'),
+  playbookRepositories: () => request<PlaybookSource[]>('GET', '/api/playbooks/repositories'),
+  addPlaybookRepository: (body: RepositoryInput) =>
+    request<{ id: number; name: string; url: string; ref: string; path: string; folder: string }>('POST', '/api/playbooks/repositories', body),
+  pullPlaybookRepository: (id: number) =>
+    request<{ id: number; folder: string; backup: string | null; updated_at: string; legacy_migrated: boolean }>('POST', `/api/playbooks/repositories/${id}/pull`),
   playbookSource: (path: string) =>
     request<string>('GET', `/api/playbooks/source?path=${encodeURIComponent(path)}`),
   validatePlaybook: (content: string, name: string) =>
@@ -110,6 +136,7 @@ export const api = {
   cronPreview: (cron: string) => request<CronPreview>('GET', `/api/schedules/preview?cron=${encodeURIComponent(cron)}`),
 
   sources: () => request<ProxmoxSource[]>('GET', '/api/proxmox/sources'),
+  testSource: (s: ProxmoxSourceInput) => request<Discovery>('POST', '/api/proxmox/test', s),
   createSource: (s: ProxmoxSourceInput) => request<ProxmoxSource>('POST', '/api/proxmox/sources', s),
   updateSource: (id: number, s: Partial<ProxmoxSourceInput>) =>
     request<ProxmoxSource>('PATCH', `/api/proxmox/sources/${id}`, s),

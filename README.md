@@ -38,11 +38,14 @@ Alpine targets.
   adjusted when needed for readable contrast. Theme changes require login (unless authentication is disabled).
   The public theme endpoint exposes only colors/presets so login can use the shared appearance.
 - Installable on Android (Chrome → *Add to home screen*).
+- **Standalone first-run setup**: start with only the Compose file, create an administrator account,
+  generate or reuse a persistent SSH key, select a playbook repository, and optionally configure Proxmox
+  using the built-in requirements guide.
 - **Tool maintenance check** (Settings tab, collapsed by default with status visible): expand to compare the installed `ansible-core`, `ansible-runner` and the
   `community.general` collection against the latest releases on PyPI / Ansible Galaxy (cached for 6 h). A dot on the
   Settings tab signals available updates. Python and npm dependencies are pinned and kept current by
   [Dependabot](.github/dependabot.yml); after merging an update, pull the new image (`docker compose pull && docker compose
-  up -d`) or, when building locally, `git pull && docker compose up -d --build`.
+  up -d`) or, when building locally, rebuild the image as described under **Prebuilt image**.
 
 ## Architecture
 
@@ -50,7 +53,7 @@ Alpine targets.
 |-----------|-------------------------------------------------------------------------|
 | Backend   | FastAPI, SQLModel/SQLite, [ansible-runner](https://ansible.readthedocs.io/projects/runner/), Authlib |
 | Frontend  | React + TypeScript (Vite), no UI framework, mobile-first CSS             |
-| Playbooks | `playbooks/*.yml`, mounted into the container and listed automatically     |
+| Playbooks | Starter playbooks shipped in the image, persisted in an editable bind-mounted directory |
 | Deploy    | Single Docker container via Docker Compose                              |
 
 HTTP clients (Proxmox API, release checks and Authlib OIDC) use `httpx2`; the FastAPI/Starlette
@@ -82,7 +85,8 @@ own host or its Proxmox node. Dry run checks the safeguards and previews reboots
 LXC guests are managed over SSH and need Python and a working init system.
 
 Add your own playbooks in the UI (**Settings → Manage playbooks**, or **Edit** / **Manage playbooks…** in the playbook
-picker), or drop a `.yml` file into `playbooks/`. The first play's `name` is used as the title, the leading `#` comment
+picker), or drop a `.yml` file into the bind-mounted `playbooks/` directory.
+The first play's `name` is used as the title, the leading `#` comment
 block as the description, and the play-level `vars:` as the defaults that are prefilled when running.
 
 The editor validates before saving, in three stages, and reports issues with line numbers (tap one to jump to the line):
@@ -90,22 +94,93 @@ The editor validates before saving, in three stages, and reports issues with lin
 1. **YAML** syntax (Ansible tags such as `!vault` are accepted)
 2. **Structure**: a list of plays, each with `hosts` (or `import_playbook`). Warnings for plays that don't target `all`
    (the app only puts the selected hosts into the inventory) or have no tasks
-3. **`ansible-playbook --syntax-check`**, run inside `playbooks/` so relative `tasks/`, `vars/` and `templates/` resolve.
+3. **`ansible-playbook --syntax-check`**, run inside the selected source folder so relative `tasks/`, `vars/` and `templates/` resolve.
    This catches unknown modules, invalid keywords and missing includes
 
 Files with errors are not saved. Every save or delete keeps the previous version in `data/playbook-history/<file>/` (last 20).
-Only top-level playbook files can be edited in the UI; `tasks/`, `templates/` and `vars/` are managed on disk.
+Top-level playbook files in each source can be edited in the UI; `tasks/`, `templates/` and `vars/` are managed on disk.
+New playbooks default to the local root; use `sources/<source>/<file>.yml` as the filename to create one in an existing source.
+
+### Multiple playbook sources and updates
+
+All sources appear together on Run, Manage playbooks and Schedules. Paths include the source name, so
+`custom.yml`, `sources/team-a/custom.yml` and `sources/team-b/custom.yml` are separate selectable playbooks.
+Each playbook runs and validates inside its own source folder, preserving relative tasks, vars, templates,
+roles and imported playbooks. Supporting task files are not listed as runnable playbooks.
+
+- **Local files:** place playbooks directly in `./playbooks`, or add any number of folders under
+  `./playbooks/sources/<name>`. Sources are discovered automatically on catalog requests.
+- **Additional local bind mounts:** add `"/host/path:/playbooks/sources/<name>"` to the Compose service's
+  volumes. Use names containing letters, digits, `_`, `-` or `.` (starting with a letter/digit, max 64 characters).
+  Mount writable directories: the entrypoint needs permission to set ownership.
+  Do not use symbolic links as source folders.
+- **Git sources:** add multiple repositories from the first-run wizard or **Settings → Playbooks**.
+  Use a unique source name, an unauthenticated HTTPS URL (or HTTP for a local Git server), optional branch/tag,
+  and the repository's playbook folder. HTTP is unencrypted. Imports live under `./playbooks/sources/<name>`
+  and never replace local files or other repositories. Re-adding the same URL/ref/folder is idempotent.
+- **Pull updates:** click **Pull latest** on a Git source and confirm. Palma fetches the current contents of
+  its configured branch/tag without rebuilding or updating the Docker image. An empty ref follows the upstream
+  default branch; a fixed tag stays pinned. The source snapshot is replaced, including supporting files and
+  upstream deletions. Local edits in that Git source are overwritten after a backup is saved under
+  `./data/playbook-backups/<repository-id>/<backup-id>/`. Other Git sources and local files are unchanged.
+  Failed downloads leave the existing snapshot intact; replacement failures restore the previous snapshot.
+  Wait for active runs to finish and disable schedules using that source before pulling; review new versions
+  and re-enable schedules afterwards. Dependencies/collections still need to be available in the image.
+  Updates are manual, not scheduled automatic pulls.
+
+Fresh instances seed bundled starter playbooks into `sources/palma`, registered as the default Git source,
+so **Pull latest** also updates Palma's own playbooks independently of the image.
+Existing root playbooks keep their filenames and remain local. If upgrading from the previous single-repository
+setup, its metadata is retained; its first pull creates a new `sources/legacy-<id>` source without deleting root
+files. Use the new namespaced paths (including in schedules) for updated versions.
 
 ## Deployment (Docker Compose)
 
 ```bash
-cp .env.example .env            # then edit it, see below
-mkdir -p ssh && cp /path/to/controller_key ssh/id_ed25519   # or point SSH_KEY_DIR to an existing key dir
-docker compose up -d --build
+docker compose up -d
 ```
 
-The app listens on `PORT` (default 8080). The controller's public key is shown under **Settings**. Add it to
-`~/.ssh/authorized_keys` of the SSH user on every managed host.
+Only `docker-compose.yml` and Docker Engine/Desktop with Compose **2.24 or newer** are needed.
+No checkout, `.env`, pre-created host directories, SSH tools or host Ansible installation is required.
+Compose creates `./data`, `./playbooks` and `./ssh` next to the Compose file automatically.
+The container seeds starter playbooks into `./playbooks/sources/palma` when `./playbooks` is empty on first startup and fixes directory/key
+permissions. Existing playbooks are never overwritten; after initialization, deleting playbooks does not
+cause them to be restored automatically.
+Open `http://<docker-host>:8080` to start the wizard:
+
+1. **Administrator**: when authentication is not already configured, create a local account with a password
+   of at least 12 characters. The password is stored as a salted scrypt hash, not plaintext.
+2. **SSH keypair**: generate an Ed25519 controller key inside the container, or reuse a supplied unencrypted
+   private key. Copy the public key and install it on managed hosts, or use **Install SSH key** after adding hosts.
+3. **Playbook sources**: defaults to `https://github.com/mrgamewatch/palma.git`, using the starter files
+   bundled into the image without a network request. Add more Git repositories (HTTPS or local HTTP) and/or
+   bind-mounted local folders. All sources are merged, with source labels for duplicate filenames.
+   Local-only setups are supported. Sources can be added and Git snapshots updated later under **Settings → Playbooks**.
+   Only import repositories you trust; custom playbooks must use collections available in the image.
+4. **Proxmox (optional)**: follow the on-screen user/token/permission, guest-agent and SSH requirements,
+   test the connection and save the source, or **Skip and finish**. Add sources later on the Proxmox tab.
+   After saving, use **Discover guests** to choose which hosts to import.
+
+Setup progress and completion are persisted. After a restart, login resumes unfinished setup; completed
+instances open the normal UI. Data (including account and generated session secret), playbooks and SSH keys
+live in bind-mounted `./data`, `./playbooks` and `./ssh` directories.
+Recreating the container or running `docker compose down -v` preserves these host directories.
+Back up these directories: they include private keys and Proxmox token secrets.
+
+**Claim a fresh instance on a trusted network before exposing it publicly.** The first visitor can create the
+administrator. Use an HTTPS reverse proxy for remote access. For optional configuration, put environment
+variables in the service's `environment:` block or use a `.env` file (see `.env.example`); neither is required.
+`PORT` defaults to 8080 and `BIND_ADDRESS` to `0.0.0.0`.
+
+To supply an existing key, add an optional read-only volume mount such as
+`/path/to/existing/ssh:/ssh-keys:ro`, or set `SSH_KEY_DIR` to an existing directory to use it directly.
+The entrypoint applies strict permissions to the persistent SSH directory.
+The default private-key filename is `id_ed25519`; set `SSH_KEY_PATH` for a different filename.
+
+**Existing installations:** keep the Compose file in the same directory to reuse the existing `./data`,
+`./playbooks` and `./ssh` bind mounts. `SSH_KEY_DIR` remains supported; its directory is now mounted
+directly at `/home/app/.ssh` so generated keys persist too. Back up your directories before upgrading.
+Existing environment-based local/OIDC logins remain supported.
 
 ### Prebuilt image
 
@@ -118,14 +193,20 @@ Multi-arch images (`linux/amd64`, `linux/arm64`) are published to the GitHub Con
 | `edge` | every push to `main` |
 | `sha-<commit>` | every push |
 
-To use it instead of building locally, replace `build: .` and `image: palma:latest` in `docker-compose.yml` with:
+Compose uses the prebuilt image by default:
 
 ```yaml
     image: ghcr.io/mrgamewatch/palma:latest
 ```
 
-and run `docker compose pull && docker compose up -d`. The repository checkout is still needed for `playbooks/`, which
-is mounted into the container.
+Update with `docker compose pull && docker compose up -d`. No repository checkout is needed.
+The first-run wizard requires an image release containing this feature; older published tags still use the
+old startup behavior. To test unpublished local changes from a checkout:
+
+```bash
+docker build -t ghcr.io/mrgamewatch/palma:latest .
+docker compose up -d --pull never
+```
 
 ### Releasing
 
@@ -142,8 +223,8 @@ The login mode is chosen automatically:
 | Configured                          | Mode                                                         |
 |-------------------------------------|--------------------------------------------------------------|
 | `OIDC_ISSUER` + `OIDC_CLIENT_ID`    | Authentik OIDC login                                         |
-| otherwise, `ADMIN_PASSWORD` set     | Local login page with `ADMIN_USERNAME` / `ADMIN_PASSWORD`    |
-| neither                             | App refuses to start (unless `AUTH_DISABLED=true` for dev)   |
+| otherwise, `ADMIN_PASSWORD` set or wizard account exists | Local login page |
+| neither                             | First-run administrator creation |
 
 ### Authentik
 
@@ -154,7 +235,8 @@ The login mode is chosen automatically:
 2. Copy the client ID and secret into `.env`. Set `OIDC_ISSUER` to the provider's *OpenID Configuration Issuer*
    (e.g. `https://auth.example.com/application/o/palma/`).
 3. Optional: set `OIDC_ALLOWED_GROUPS` (comma separated) to restrict access, and/or bind the application to a group in Authentik.
-4. Set `SESSION_SECRET` (`openssl rand -hex 32`). Behind an HTTPS reverse proxy, also set `SESSION_HTTPS_ONLY=true`
+4. `SESSION_SECRET` is generated and persisted automatically if unset (you may supply your own).
+   Behind an HTTPS reverse proxy, also set `SESSION_HTTPS_ONLY=true`
    and use the HTTPS URL as `PUBLIC_URL`.
 
 ### Pinned image tags (e.g. Authentik)
@@ -221,9 +303,11 @@ password once; it is not stored. Afterwards the app verifies that key login work
 
 ### Proxmox import
 
-Create an API token per Proxmox node/cluster (**Datacenter → Permissions → API Tokens**) and grant it the
-**PVEAuditor** role on `/`. Add it on the **Proxmox** tab, then tap **Discover guests** and import the containers and VMs
-you want.
+Use the requirements guide in the setup wizard or the **Add Proxmox source** sheet. Create a dedicated user
+(e.g. `palma@pve`) and grant **PVEAuditor** on `/` with propagation. Create an API token for it with privilege
+separation enabled and grant that token **PVEAuditor** on `/` with propagation too: effective permissions are
+the intersection of user and token permissions. Copy the one-time token secret and add it in the wizard or
+on the **Proxmox** tab, then tap **Discover guests** and import the containers and VMs you want.
 
 - **LXC**: the IP comes from the container's interfaces when it's running; otherwise from a static `ip=` in `net0`.
 - **VMs**: the IP comes from the **QEMU guest agent** (`qemu-guest-agent` installed in the VM and *QEMU Guest Agent*
@@ -233,7 +317,7 @@ you want.
 - Guests without an IP show the reason. Re-importing refreshes the IP, node, status and type. Imported hosts are
   tagged `proxmox`, `<source name>` and any Proxmox tags, and get the type `lxc` or `vm`.
 
-> The Proxmox token secret is stored in the SQLite database in `data/`. Protect that directory accordingly.
+> The Proxmox token secret is stored in the SQLite database in `./data`. Protect and back up that directory.
 
 ## Development
 

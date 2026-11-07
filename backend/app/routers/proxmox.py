@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+import httpx2
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -73,6 +74,17 @@ async def _discover(src: ProxmoxSource) -> dict:
         return await discover_guests(src)
     except ProxmoxError as exc:
         raise HTTPException(502, str(exc)) from exc
+    except httpx2.HTTPStatusError as exc:
+        raise HTTPException(502, f"Proxmox API returned HTTP {exc.response.status_code}; check token permissions") from exc
+    except httpx2.HTTPError as exc:
+        raise HTTPException(502, "Proxmox API request failed; check connectivity and TLS settings") from exc
+
+
+@router.post("/test")
+async def test_source(body: ProxmoxSourceCreate):
+    if not body.name.strip() or not body.token_id.strip() or not body.token_secret.strip():
+        raise HTTPException(400, "Name, token ID and token secret are required")
+    return await _discover(ProxmoxSource.model_validate(body))
 
 
 def _match_hosts(s: Session, source_id: int, guests: list[dict]) -> dict[int, Host]:

@@ -278,7 +278,7 @@ export function RunPage() {
                   }}
                 >
                   <div className="card-title">{p.title}</div>
-                  <div className="muted small">{p.path}</div>
+                  <div className="muted small">{p.source} · {p.path}</div>
                   {p.description && <p className="description">{p.description}</p>}
                 </button>
                 <Link className="btn btn-small" to={`/playbooks/edit/${encodeURIComponent(p.path)}`}>

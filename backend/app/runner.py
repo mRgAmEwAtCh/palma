@@ -13,6 +13,8 @@ from sqlmodel import Session, select
 from .config import get_settings
 from .db import engine
 from .models import Host, Run, utcnow
+from .playbooks import resolve_playbook
+from .repositories import lock as repository_lock
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -98,10 +100,12 @@ def create_and_start(
         triggered_by=triggered_by,
         schedule_id=schedule_id,
     )
-    s.add(run)
-    s.commit()
-    s.refresh(run)
-    start(run.id)
+    with repository_lock:
+        resolve_playbook(playbook)
+        s.add(run)
+        s.commit()
+        s.refresh(run)
+        start(run.id)
     return run
 
 
@@ -176,10 +180,11 @@ def _execute(run_id: int) -> None:
         status, rc = "error", None
         final_stats: dict[str, Any] = {}
         try:
+            path = resolve_playbook(playbook)
             r = ansible_runner.run(
                 private_data_dir=str(private_dir),
-                project_dir=str(settings.playbooks_dir.resolve()),
-                playbook=playbook,
+                project_dir=str(path.parent),
+                playbook=path.name,
                 inventory=inventory,
                 extravars=extra_vars or None,
                 cmdline="--check --diff" if check_mode else None,

@@ -2,10 +2,14 @@ import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
+from sqlmodel import Session
 
 from ..auth import current_user
 from ..config import get_settings
+from ..db import get_session
 from ..keydeploy import controller_public_key
+from ..models import SetupState
+from ..repositories import list_repositories
 from ..versions import check_versions
 
 router = APIRouter(tags=["system"])
@@ -23,7 +27,7 @@ async def tool_versions(refresh: bool = False):
 
 
 @router.get("/system", dependencies=[Depends(current_user)])
-def system_info():
+def system_info(s: Session = Depends(get_session)):
     key = Path(settings.ssh_key_path)
     pubkey = controller_public_key()
     try:
@@ -32,6 +36,7 @@ def system_info():
         ).stdout.splitlines()[0]
     except (OSError, IndexError, subprocess.TimeoutExpired):
         ansible_version = None
+    setup = s.get(SetupState, 1)
     return {
         "ssh_key_path": str(key),
         "ssh_key_present": key.exists(),
@@ -39,4 +44,8 @@ def system_info():
         "default_ssh_user": settings.default_ssh_user,
         "ansible_version": ansible_version,
         "playbooks_dir": str(settings.playbooks_dir.resolve()),
+        "playbook_repository": {
+            "url": setup.repository_url, "ref": setup.repository_ref, "path": setup.repository_path,
+        } if setup and setup.repository_url else None,
+        "playbook_repositories": list_repositories(s),
     }
