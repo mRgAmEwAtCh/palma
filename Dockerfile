@@ -9,6 +9,8 @@ RUN npm run build
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM python:3.14-slim
+ARG PALMA_VERSION=development
+ENV PALMA_VERSION=${PALMA_VERSION}
 
 LABEL org.opencontainers.image.title="Palma" \
       org.opencontainers.image.description="Proxmox And Linux Maintenance via Ansible: a mobile-first web UI for your homelab" \

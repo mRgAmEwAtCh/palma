@@ -41,3 +41,78 @@ def test_versions_endpoint_offline_safe(monkeypatch):
     assert by_name["community.general"]["status"] == "unknown"
     assert by_name["community.general"]["error"]
     assert data["update_available"] is True
+
+
+@pytest.mark.parametrize(
+    "current,latest,update",
+    [
+        ("v1.0.0", "v1.1.0", True),
+        ("v1.1.0", "v1.1.0", False),
+        ("v1.2.0", "v1.1.0", False),
+        ("v1.9.0", "v1.10.0", True),
+        ("v1.0.0-3-g1234567", "v1.1.0", False),
+        ("v1.0.0-dirty", "v1.1.0", False),
+        ("development", "v1.1.0", False),
+    ],
+)
+def test_application_release_comparison(monkeypatch, current, latest, update):
+    monkeypatch.setenv("PALMA_VERSION", current)
+    monkeypatch.setattr(versions, "_app_cache", {"at": 0.0, "data": None})
+    calls = []
+
+    async def get(client, url, **kwargs):
+        calls.append(url)
+        return versions.httpx2.Response(
+            200, json={"tag_name": latest, "draft": False, "prerelease": False},
+            request=versions.httpx2.Request("GET", url),
+        )
+
+    monkeypatch.setattr(versions.httpx2.AsyncClient, "get", get)
+    with TestClient(app) as client:
+        response = client.get("/api/system/application-version")
+        assert response.status_code == 200
+        data = response.json()
+        assert client.get("/api/system/application-version").json() == data
+    assert len(calls) == 1
+    assert data == {
+        "current": current, "latest": latest, "update_available": update,
+        "url": f"{versions.RELEASES_URL}/tag/{latest}", "error": None,
+    }
+
+
+@pytest.mark.parametrize("mode", ["offline", "rate-limit", "invalid-tag", "prerelease", "missing-tag"])
+def test_application_release_check_failure(monkeypatch, mode):
+    monkeypatch.setenv("PALMA_VERSION", "v1.0.0")
+    monkeypatch.setattr(versions, "_app_cache", {"at": 0.0, "data": None})
+
+    async def get(client, url, **kwargs):
+        if mode == "offline":
+            raise versions.httpx2.ConnectError("offline")
+        payload = {"tag_name": "v2.0.0", "prerelease": mode == "prerelease"}
+        if mode == "invalid-tag":
+            payload["tag_name"] = "not-a-version"
+        if mode == "missing-tag":
+            payload = {}
+        return versions.httpx2.Response(
+            403 if mode == "rate-limit" else 200, json=payload,
+            request=versions.httpx2.Request("GET", url),
+        )
+
+    monkeypatch.setattr(versions.httpx2.AsyncClient, "get", get)
+    with TestClient(app) as client:
+        response = client.get("/api/system/application-version")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current"] == "v1.0.0"
+    assert data["latest"] is None
+    assert data["update_available"] is False
+    assert data["error"]
+
+
+def test_application_version_from_git(monkeypatch):
+    monkeypatch.delenv("PALMA_VERSION", raising=False)
+    monkeypatch.setattr(
+        versions.subprocess, "run",
+        lambda *args, **kwargs: versions.subprocess.CompletedProcess(args, 0, stdout="v1.1.0-2-gabc1234\n"),
+    )
+    assert versions.application_version() == "v1.1.0-2-gabc1234"

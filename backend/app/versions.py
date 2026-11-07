@@ -3,11 +3,15 @@
 import asyncio
 import json
 import logging
+import os
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx2
 from packaging.version import InvalidVersion, Version
@@ -25,6 +29,63 @@ COMPONENTS: list[dict[str, str]] = [
 
 _cache: dict[str, Any] = {"at": 0.0, "data": None}
 _lock = asyncio.Lock()
+_app_cache: dict[str, Any] = {"at": 0.0, "data": None}
+_app_lock = asyncio.Lock()
+RELEASES_URL = "https://github.com/mRgAmEwAtCh/palma/releases"
+
+
+def application_version() -> str:
+    configured = os.environ.get("PALMA_VERSION")
+    if configured:
+        return configured
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--match", "v[0-9]*", "--always", "--dirty"],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True, text=True, timeout=5, check=True,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("Could not determine Palma Git version: %s", exc)
+        return "development"
+
+
+async def check_application_version() -> dict[str, Any]:
+    async with _app_lock:
+        if _app_cache["data"] and time.monotonic() - _app_cache["at"] < CACHE_TTL_SECONDS:
+            return _app_cache["data"]
+        current = application_version()
+        latest = error = None
+        url = RELEASES_URL
+        status = "unknown"
+        try:
+            async with httpx2.AsyncClient(timeout=10, follow_redirects=True) as client:
+                response = await client.get(
+                    "https://api.github.com/repos/mRgAmEwAtCh/palma/releases/latest",
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                response.raise_for_status()
+                release = response.json()
+                latest = release["tag_name"]
+                if (
+                    not isinstance(latest, str)
+                    or not re.fullmatch(r"v?\d+\.\d+\.\d+", latest)
+                    or release.get("draft") or release.get("prerelease")
+                ):
+                    raise ValueError("Latest release is not a stable version tag")
+                url = f"{RELEASES_URL}/tag/{quote(latest, safe='')}"
+                if re.fullmatch(r"v?\d+\.\d+\.\d+", current):
+                    status, _ = compare(current, latest)
+        except (httpx2.HTTPError, KeyError, TypeError, ValueError) as exc:
+            error = f"Could not check Palma releases: {exc.__class__.__name__}"
+            log.warning("%s: %s", error, exc)
+            latest = None
+        data = {
+            "current": current, "latest": latest, "url": url,
+            "update_available": status == "outdated", "error": error,
+        }
+        _app_cache.update(at=time.monotonic(), data=data)
+        return data
 
 
 def compare(installed: str | None, latest: str | None) -> tuple[str, str | None]:

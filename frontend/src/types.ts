@@ -209,6 +209,14 @@ export interface ToolVersions {
   components: ToolComponent[]
 }
 
+export interface ApplicationVersion {
+  current: string
+  latest: string | null
+  url: string
+  update_available: boolean
+  error: string | null
+}
+
 export interface Discovery {
   nodes: string[]
   guests: Guest[]
