@@ -10,6 +10,14 @@ export interface SetupStatus {
   default_repository: string
 }
 
+export interface OIDCSetupInput {
+  issuer: string
+  client_id: string
+  client_secret: string
+  public_url: string
+  allowed_groups: string
+}
+
 export interface SetupDetails {
   ssh_public_key: string | null
   repository_url: string

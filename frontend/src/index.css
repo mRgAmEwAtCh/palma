@@ -43,6 +43,57 @@
   min-width: 0;
 }
 
+.setup-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-copy :is(.card, .form, label, summary > span) {
+  min-width: 0;
+}
+
+.setup-copy ol {
+  padding-left: 24px;
+}
+
+.setup-copy ol > li + li {
+  margin-top: 8px;
+}
+
+.setup-select {
+  position: relative;
+  display: block;
+}
+
+.setup-select select {
+  appearance: none;
+  padding-right: 40px;
+}
+
+.setup-select svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted);
+}
+
+.setup-actions {
+  flex-wrap: wrap;
+}
+
+.setup-actions .btn {
+  min-width: 0;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  text-align: center;
+}
+
+.setup-actions .grow {
+  flex-basis: 180px;
+}
+
 body {
   margin: 0;
   min-height: 100dvh;
