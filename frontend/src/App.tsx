@@ -13,7 +13,8 @@ import { RunDetailPage } from './pages/RunDetailPage'
 import { RunPage } from './pages/RunPage'
 import { SchedulesPage } from './pages/SchedulesPage'
 import { SettingsPage } from './pages/SettingsPage'
-import type { Me, ToolVersions } from './types'
+import { SetupPage } from './pages/SetupPage'
+import type { Me, SetupStatus, ToolVersions } from './types'
 import { ThemeProvider } from './theme'
 
 const TABS = [
@@ -62,13 +63,24 @@ function TabBar({ updateAvailable }: { updateAvailable: boolean }) {
 export default function App() {
   return (
     <ThemeProvider>
-      {window.location.pathname === '/login' ? <LoginPage /> : <AuthenticatedApp />}
+      <Startup />
       <Toaster />
     </ThemeProvider>
   )
 }
 
-function AuthenticatedApp() {
+function Startup() {
+  const [status, setStatus] = useState<SetupStatus | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    api.setupStatus().then(setStatus).catch((e: Error) => setError(e.message))
+  }, [])
+  if (!status) return <div className="empty full">{error ?? 'Loading...'}</div>
+  if (status.needs_account) return <SetupPage status={status} />
+  return window.location.pathname === '/login' ? <LoginPage /> : <AuthenticatedApp status={status} />
+}
+
+function AuthenticatedApp({ status }: { status: SetupStatus }) {
   const [me, setMe] = useState<Me | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [versions, setVersions] = useState<ToolVersions | null>(null)
@@ -79,14 +91,15 @@ function AuthenticatedApp() {
       .then((m) => {
         setMe(m)
         // Cached server-side; only used for the update indicator, so failures are silent.
-        api.versions().then(setVersions).catch(() => undefined)
+        if (!status.required) api.versions().then(setVersions).catch(() => undefined)
       })
       .catch((e) => setError(e.message))
-  }, [])
+  }, [status.required])
 
   if (!me) {
     return <div className="empty full">{error ?? 'Loading…'}</div>
   }
+  if (status.required) return <SetupPage status={status} />
 
   return (
     <BrowserRouter>

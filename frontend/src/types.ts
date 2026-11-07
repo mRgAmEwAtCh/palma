@@ -4,6 +4,37 @@ export interface ThemeSettings {
   background: 'graphite' | 'midnight' | 'slate' | 'forest'
 }
 
+export interface SetupStatus {
+  required: boolean
+  needs_account: boolean
+  default_repository: string
+}
+
+export interface SetupDetails {
+  ssh_public_key: string | null
+  repository_url: string
+  repository_ref: string
+  repository_path: string
+  repositories: PlaybookSource[]
+}
+
+export interface RepositoryInput {
+  name?: string
+  url: string
+  ref: string
+  path: string
+}
+
+export interface PlaybookSource {
+  id: number | null
+  name: string
+  kind: 'git' | 'local'
+  folder: string
+  url: string
+  ref: string
+  path: string
+}
+
 export interface ThemePreset {
   id: ThemeSettings['background']
   name: string
@@ -70,6 +101,7 @@ export interface Playbook {
   title: string
   description: string
   vars: Record<string, unknown>
+  source: string
 }
 
 export type RunStatus = 'pending' | 'running' | 'successful' | 'failed' | 'canceled' | 'error' | 'timeout'
@@ -139,6 +171,8 @@ export interface SystemInfo {
   default_ssh_user: string
   ansible_version: string | null
   playbooks_dir: string
+  playbook_repository: RepositoryInput | null
+  playbook_repositories: PlaybookSource[]
 }
 
 export interface RerunState {

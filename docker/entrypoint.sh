@@ -4,10 +4,20 @@
 # then drops privileges to the "app" user.
 set -e
 
-mkdir -p /data /home/app/.ssh
+mkdir -p /data /playbooks /home/app/.ssh
+if [ ! -f /data/playbooks-initialized ]; then
+  if [ -z "$(find /playbooks -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    mkdir -p /playbooks/sources/palma
+    cp -R /app/default-playbooks/. /playbooks/sources/palma/
+    touch /playbooks/sources/palma/.palma-bundled
+  fi
+  touch /data/playbooks-initialized
+fi
 if [ -d /ssh-keys ]; then
   for f in /ssh-keys/*; do
-    [ -f "$f" ] && cp "$f" /home/app/.ssh/
+    if [ -f "$f" ]; then
+      cp "$f" /home/app/.ssh/
+    fi
   done
 fi
 chmod 700 /home/app/.ssh

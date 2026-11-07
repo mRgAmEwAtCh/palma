@@ -24,7 +24,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ANSIBLE_COLLECTIONS_PATH=/usr/share/ansible/collections
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client \
+    && apt-get install -y --no-install-recommends openssh-client git util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 app
 
@@ -37,7 +37,7 @@ RUN ansible-galaxy collection install -r /tmp/requirements.yml -p /usr/share/ans
 
 COPY backend/app ./app
 COPY --from=web /web/dist ./frontend
-COPY playbooks /playbooks
+COPY playbooks /app/default-playbooks
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

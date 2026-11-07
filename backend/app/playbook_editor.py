@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from .config import get_settings
+from .playbooks import SOURCE_NAME_RE
 
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}\.ya?ml$")
 RESERVED = {"requirements.yml", "requirements.yaml"}
@@ -64,12 +65,26 @@ def playbooks_root() -> Path:
 
 
 def check_name(name: str) -> Path:
-    """Only plain top-level playbook file names are allowed (no paths)."""
-    if not NAME_RE.match(name or "") or name.lower() in RESERVED:
+    """Local top-level files or top-level files in an existing isolated source."""
+    parts = name.split("/")
+    filename = parts[-1]
+    root = playbooks_root()
+    if len(parts) == 3 and parts[0] == "sources" and SOURCE_NAME_RE.fullmatch(parts[1]):
+        folder = root / "sources" / parts[1]
+        if not folder.is_dir() or (root / "sources").is_symlink() or folder.is_symlink():
+            raise PlaybookFileError("Playbook source folder does not exist or is a symbolic link")
+    elif len(parts) == 1:
+        folder = root
+    else:
+        raise PlaybookFileError("Use a local filename or sources/<source>/<filename>")
+    if not NAME_RE.fullmatch(filename) or filename.lower() in RESERVED:
         raise PlaybookFileError(
-            "Invalid file name: use letters, digits, '-', '_' or '.', ending in .yml/.yaml (no folders)"
+            "Invalid file name: use letters, digits, '-', '_' or '.', ending in .yml/.yaml"
         )
-    return playbooks_root() / name
+    path = folder / filename
+    if path.is_symlink():
+        raise PlaybookFileError("Symbolic links cannot be edited")
+    return path
 
 
 def _yaml_issue(exc: yaml.YAMLError) -> Issue:
@@ -148,7 +163,7 @@ def _ansible_issue(output: str, temp_name: str, display_name: str) -> Issue:
 
 
 def _ansible_syntax_check(content: str, display_name: str, result: ValidationResult) -> None:
-    root = playbooks_root()
+    root = check_name(display_name).parent
     temp_name = f".validate-{uuid.uuid4().hex}.yml"
     try:
         # Inside the playbooks dir so relative tasks/, vars/ and templates/ paths resolve like in a real run.
@@ -196,7 +211,7 @@ def _history_dir(name: str) -> Path:
 def _archive(path: Path, suffix: str = "") -> None:
     if not path.exists():
         return
-    folder = _history_dir(path.name)
+    folder = _history_dir(path.relative_to(playbooks_root()).as_posix())
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     shutil.copy2(path, folder / f"{stamp}{suffix}.yml")
@@ -216,7 +231,7 @@ def save(name: str, content: str, create: bool) -> ValidationResult:
     if not result.valid:
         return result
     _archive(path)
-    temp = path.with_name(f".{name}.{uuid.uuid4().hex}.tmp")
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temp.write_text(content, encoding="utf-8")
     os.replace(temp, path)
     return result
