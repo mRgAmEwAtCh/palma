@@ -10,7 +10,7 @@ from ..db import get_session
 from ..keydeploy import controller_public_key
 from ..models import SetupState
 from ..repositories import list_repositories
-from ..versions import check_versions
+from ..versions import check_application_version, check_versions
 
 router = APIRouter(tags=["system"])
 settings = get_settings()
@@ -24,6 +24,11 @@ def me(user: dict = Depends(current_user)):
 @router.get("/system/versions", dependencies=[Depends(current_user)])
 async def tool_versions(refresh: bool = False):
     return await check_versions(refresh=refresh)
+
+
+@router.get("/system/application-version", dependencies=[Depends(current_user)])
+async def application_version_info():
+    return await check_application_version()
 
 
 @router.get("/system", dependencies=[Depends(current_user)])

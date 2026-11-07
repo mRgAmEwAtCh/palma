@@ -63,11 +63,18 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # ghcr.io requires lowercase image names
       - name: Image name
         id: image
         run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Git version
+        id: version
+        run: |
+          echo "value=$(git describe --tags --match 'v[0-9]*' --always)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v4
 
@@ -103,6 +110,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          build-args: |
+            PALMA_VERSION=${{ steps.version.outputs.value }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
           tags: ${{ steps.meta.outputs.tags }}

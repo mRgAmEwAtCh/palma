@@ -215,6 +215,14 @@ Compose uses the prebuilt image by default:
 ```
 
 Update with `docker compose pull && docker compose up -d`. No repository checkout is needed.
+The header displays the Git version embedded in the image: release builds show their tag (for example
+`v1.1.0`); branch/PR builds show the nearest tag plus commit distance and hash. After login, Palma checks
+GitHub's latest stable release (cached for six hours) and shows a yellow update toast once per newer release
+in each browser. The toast stays visible until manually dismissed. Release notes are linked; updates are not installed automatically. Development builds
+are not compared to stable releases, and offline/rate-limited checks report an error without blocking use.
+For local image builds, embed the checkout version with
+`docker build --build-arg PALMA_VERSION="$(git describe --tags --match 'v[0-9]*' --always --dirty)" -t ghcr.io/mrgamewatch/palma:latest .`.
+Without this build argument, local images display `development`.
 The first-run wizard requires an image release containing this feature; older published tags still use the
 old startup behavior. To test unpublished local changes from a checkout:
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { CloudIcon, HistoryIcon, PlayIcon, ServerIcon, SettingsIcon } from './components/Icons'
-import { Toaster } from './components/Toast'
+import { toast, Toaster } from './components/Toast'
 import { HistoryPage } from './pages/HistoryPage'
 import { HostsPage } from './pages/HostsPage'
 import { LoginPage } from './pages/LoginPage'
@@ -14,7 +14,7 @@ import { RunPage } from './pages/RunPage'
 import { SchedulesPage } from './pages/SchedulesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
-import type { Me, SetupStatus, ToolVersions } from './types'
+import type { ApplicationVersion, Me, SetupStatus, ToolVersions } from './types'
 import { ThemeProvider } from './theme'
 
 const TABS = [
@@ -84,6 +84,7 @@ function AuthenticatedApp({ status }: { status: SetupStatus }) {
   const [me, setMe] = useState<Me | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [versions, setVersions] = useState<ToolVersions | null>(null)
+  const [applicationVersion, setApplicationVersion] = useState<ApplicationVersion | null>(null)
 
   useEffect(() => {
     api
@@ -92,6 +93,26 @@ function AuthenticatedApp({ status }: { status: SetupStatus }) {
         setMe(m)
         // Cached server-side; only used for the update indicator, so failures are silent.
         if (!status.required) api.versions().then(setVersions).catch(() => undefined)
+        if (!status.required) api.applicationVersion().then((version) => {
+          setApplicationVersion(version)
+          if (version.error) toast.error(version.error)
+          if (version.update_available && version.latest) {
+            const key = `palma-release-seen:${version.latest}`
+            let notify = true
+            try {
+              notify = !localStorage.getItem(key)
+              if (notify) localStorage.setItem(key, 'true')
+            } catch (e) {
+              toast.error(`Could not save release notification preference: ${String(e)}`)
+            }
+            if (notify) toast.warning(
+              <>
+                Palma {version.latest} is available (installed: {version.current}).{' '}
+                <a href={version.url} target="_blank" rel="noreferrer">View release notes</a>
+              </>,
+            )
+          }
+        }).catch(toast.error)
       })
       .catch((e) => setError(e.message))
   }, [status.required])
@@ -106,7 +127,14 @@ function AuthenticatedApp({ status }: { status: SetupStatus }) {
       <header className="topbar">
         <div className="brand">
           <img src="/icon.svg" alt="Palma" />
-          <span className="brand-name">Palma</span>
+          <span className="brand-label">
+            <span className="brand-name">Palma</span>
+            {applicationVersion && (
+              <span className="brand-version muted" title={applicationVersion.current}>
+                {applicationVersion.current}
+              </span>
+            )}
+          </span>
           <span className="brand-sep">/</span>
           <h1 className="ellipsis">
             <Title />

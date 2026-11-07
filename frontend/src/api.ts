@@ -14,6 +14,7 @@ import type {
   CronPreview,
   SystemInfo,
   ToolVersions,
+  ApplicationVersion,
   ThemeCatalog,
   ThemeSettings,
   SetupStatus,
@@ -90,6 +91,7 @@ export const api = {
   localLogin: (username: string, password: string) =>
     request<{ ok: boolean }>('POST', '/auth/local', { username, password }),
   system: () => request<SystemInfo>('GET', '/api/system'),
+  applicationVersion: () => request<ApplicationVersion>('GET', '/api/system/application-version'),
   versions: (refresh = false) => request<ToolVersions>('GET', `/api/system/versions${refresh ? '?refresh=true' : ''}`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
