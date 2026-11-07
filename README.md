@@ -202,6 +202,11 @@ Multi-arch images (`linux/amd64`, `linux/arm64`) are published to the GitHub Con
 | `latest`, `1.2.3`, `1.2`, `1` | release tags `v1.2.3` |
 | `edge` | every push to `main` |
 | `sha-<commit>` | every push |
+| `pr-<number>` | pull requests from this repository (except Dependabot) |
+
+Pull-request images are updated after tests pass on each PR update. Fork and Dependabot PRs are
+built and tested but not published. To try a PR, replace the Compose image tag with `pr-<number>`
+(for example, `ghcr.io/mrgamewatch/palma:pr-8`), then run `docker compose pull && docker compose up -d`.
 
 Compose uses the prebuilt image by default:
 
