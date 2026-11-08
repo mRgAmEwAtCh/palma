@@ -32,6 +32,16 @@ _lock = asyncio.Lock()
 _app_cache: dict[str, Any] = {"at": 0.0, "data": None}
 _app_lock = asyncio.Lock()
 RELEASES_URL = "https://github.com/mRgAmEwAtCh/palma/releases"
+ERROR_RETRY_SECONDS = 300
+
+
+def _describe_error(exc: Exception) -> str:
+    if isinstance(exc, httpx2.HTTPStatusError):
+        status = exc.response.status_code
+        hint = " (rate limited or no release published)" if status in (403, 404, 429) else ""
+        return f"HTTP {status}{hint}"
+    detail = str(exc) or exc.__class__.__name__
+    return f"{exc.__class__.__name__}: {detail}"
 
 
 def application_version() -> str:
@@ -77,14 +87,16 @@ async def check_application_version() -> dict[str, Any]:
                 if re.fullmatch(r"v?\d+\.\d+\.\d+", current):
                     status, _ = compare(current, latest)
         except (httpx2.HTTPError, KeyError, TypeError, ValueError) as exc:
-            error = f"Could not check Palma releases: {exc.__class__.__name__}"
-            log.warning("%s: %s", error, exc)
+            error = f"Could not check Palma releases: {_describe_error(exc)}"
+            log.warning("%s", error, exc_info=exc)
             latest = None
         data = {
             "current": current, "latest": latest, "url": url,
             "update_available": status == "outdated", "error": error,
         }
-        _app_cache.update(at=time.monotonic(), data=data)
+        # Failures are retried soon instead of being cached for the full TTL
+        cached_at = time.monotonic() - (CACHE_TTL_SECONDS - ERROR_RETRY_SECONDS if error else 0)
+        _app_cache.update(at=cached_at, data=data)
         return data
 
 
